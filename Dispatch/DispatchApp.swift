@@ -1,10 +1,14 @@
 import SwiftUI
 
 @main
-struct DispatchApp: App {
+struct DispatchMainApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .preferredColorScheme(.dark)
+                .onAppear {
+                    UIApplication.shared.isIdleTimerDisabled = true
+                }
         }
     }
 }

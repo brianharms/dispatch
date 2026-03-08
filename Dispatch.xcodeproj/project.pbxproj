@@ -7,11 +7,12 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		19B6BD1341119252CDDD2D3E /* StatusIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F03A8710E33F762E2A47DCEE /* StatusIndicator.swift */; };
 		396D19F627ECC95D70F25DFB /* VolumeButtonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */; };
 		5EEBA710AECEFD76830FDAD6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F2A7FA193517EE142FAD018C /* Assets.xcassets */; };
 		694A119D964D032BDE0D7365 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A73AF55B335600CA2334960 /* NetworkManager.swift */; };
 		81B12A552952630E95B97E6A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B511BD345F5EABC2DA150C31 /* ContentView.swift */; };
-		A028EA8EFDF0BFDFF55E9F72 /* HiddenVolumeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F140F4A22394B5240954E449 /* HiddenVolumeView.swift */; };
+		AE3BC2645DEF86A472B14CB5 /* WireframeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 349AE44221E656F6D17F11A3 /* WireframeView.swift */; };
 		B296AC3C38E94FE8EB1367B3 /* AudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */; };
 		F367233B6EE6766ADA060F3C /* DispatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */; };
 /* End PBXBuildFile section */
@@ -19,11 +20,12 @@
 /* Begin PBXFileReference section */
 		1A85B85627C8BE406EB8DF1C /* Dispatch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Dispatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2A73AF55B335600CA2334960 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
+		349AE44221E656F6D17F11A3 /* WireframeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireframeView.swift; sourceTree = "<group>"; };
 		8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioManager.swift; sourceTree = "<group>"; };
 		A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DispatchApp.swift; sourceTree = "<group>"; };
 		B511BD345F5EABC2DA150C31 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeButtonManager.swift; sourceTree = "<group>"; };
-		F140F4A22394B5240954E449 /* HiddenVolumeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenVolumeView.swift; sourceTree = "<group>"; };
+		F03A8710E33F762E2A47DCEE /* StatusIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusIndicator.swift; sourceTree = "<group>"; };
 		F2A7FA193517EE142FAD018C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -43,9 +45,10 @@
 				8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */,
 				B511BD345F5EABC2DA150C31 /* ContentView.swift */,
 				A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */,
-				F140F4A22394B5240954E449 /* HiddenVolumeView.swift */,
 				2A73AF55B335600CA2334960 /* NetworkManager.swift */,
+				F03A8710E33F762E2A47DCEE /* StatusIndicator.swift */,
 				CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */,
+				349AE44221E656F6D17F11A3 /* WireframeView.swift */,
 			);
 			path = Dispatch;
 			sourceTree = "<group>";
@@ -132,9 +135,10 @@
 				B296AC3C38E94FE8EB1367B3 /* AudioManager.swift in Sources */,
 				81B12A552952630E95B97E6A /* ContentView.swift in Sources */,
 				F367233B6EE6766ADA060F3C /* DispatchApp.swift in Sources */,
-				A028EA8EFDF0BFDFF55E9F72 /* HiddenVolumeView.swift in Sources */,
 				694A119D964D032BDE0D7365 /* NetworkManager.swift in Sources */,
+				19B6BD1341119252CDDD2D3E /* StatusIndicator.swift in Sources */,
 				396D19F627ECC95D70F25DFB /* VolumeButtonManager.swift in Sources */,
+				AE3BC2645DEF86A472B14CB5 /* WireframeView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
