@@ -5,3 +5,4 @@ DerivedData/
 *.ipa
 *.dSYM.zip
 *.dSYM
+.claude/worktrees/
