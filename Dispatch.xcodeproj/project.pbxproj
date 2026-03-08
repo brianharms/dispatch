@@ -11,6 +11,7 @@
 		5EEBA710AECEFD76830FDAD6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F2A7FA193517EE142FAD018C /* Assets.xcassets */; };
 		694A119D964D032BDE0D7365 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A73AF55B335600CA2334960 /* NetworkManager.swift */; };
 		81B12A552952630E95B97E6A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B511BD345F5EABC2DA150C31 /* ContentView.swift */; };
+		A028EA8EFDF0BFDFF55E9F72 /* HiddenVolumeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F140F4A22394B5240954E449 /* HiddenVolumeView.swift */; };
 		B296AC3C38E94FE8EB1367B3 /* AudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */; };
 		F367233B6EE6766ADA060F3C /* DispatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */; };
 /* End PBXBuildFile section */
@@ -22,6 +23,7 @@
 		A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DispatchApp.swift; sourceTree = "<group>"; };
 		B511BD345F5EABC2DA150C31 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeButtonManager.swift; sourceTree = "<group>"; };
+		F140F4A22394B5240954E449 /* HiddenVolumeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenVolumeView.swift; sourceTree = "<group>"; };
 		F2A7FA193517EE142FAD018C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -41,6 +43,7 @@
 				8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */,
 				B511BD345F5EABC2DA150C31 /* ContentView.swift */,
 				A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */,
+				F140F4A22394B5240954E449 /* HiddenVolumeView.swift */,
 				2A73AF55B335600CA2334960 /* NetworkManager.swift */,
 				CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */,
 			);
@@ -129,6 +132,7 @@
 				B296AC3C38E94FE8EB1367B3 /* AudioManager.swift in Sources */,
 				81B12A552952630E95B97E6A /* ContentView.swift in Sources */,
 				F367233B6EE6766ADA060F3C /* DispatchApp.swift in Sources */,
+				A028EA8EFDF0BFDFF55E9F72 /* HiddenVolumeView.swift in Sources */,
 				694A119D964D032BDE0D7365 /* NetworkManager.swift in Sources */,
 				396D19F627ECC95D70F25DFB /* VolumeButtonManager.swift in Sources */,
 			);
