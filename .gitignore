@@ -1,0 +1,7 @@
+build-debug/
+*.xcuserdata
+DerivedData/
+.DS_Store
+*.ipa
+*.dSYM.zip
+*.dSYM

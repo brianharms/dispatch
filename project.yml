@@ -1,0 +1,43 @@
+name: Dispatch
+options:
+  bundleIdPrefix: com.ritualindustries
+  deploymentTarget:
+    iOS: "17.0"
+
+targets:
+  Dispatch:
+    type: application
+    platform: iOS
+    sources:
+      - path: Dispatch
+        excludes:
+          - Info.plist
+    info:
+      path: Dispatch/Info.plist
+      properties:
+        CFBundleDisplayName: Dispatch
+        UILaunchStoryboardName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIRequiresFullScreen: true
+        NSMicrophoneUsageDescription: "Dispatch uses the microphone for voice dictation to your terminal."
+        NSSpeechRecognitionUsageDescription: "Dispatch uses speech recognition to transcribe your voice commands."
+        NSLocalNetworkUsageDescription: "Dispatch connects to a server on your Mac to control terminal windows."
+        NSBonjourServices:
+          - "_http._tcp"
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ritualindustries.dispatch
+        DEVELOPMENT_TEAM: X6HPD4S92D
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+        PRODUCT_MODULE_NAME: DispatchApp
+        PRODUCT_NAME: Dispatch
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIStatusBarStyle: ""
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
