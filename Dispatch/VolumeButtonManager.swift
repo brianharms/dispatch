@@ -22,6 +22,7 @@ final class VolumeButtonManager {
     // MARK: Published State
 
     private(set) var lastAction: DispatchAction?
+    private(set) var actionID: Int = 0  // increments on every action, even repeated ones
     private(set) var isDictating: Bool = false
     private(set) var isActive: Bool = false
 
@@ -115,7 +116,11 @@ final class VolumeButtonManager {
     func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setCategory(
+                .playAndRecord,
+                mode: .default,
+                options: [.defaultToSpeaker, .mixWithOthers, .allowBluetooth]
+            )
             try session.setActive(true)
         } catch {
             print("[VolumeButtonManager] Audio session error: \(error)")
@@ -322,7 +327,8 @@ final class VolumeButtonManager {
 
     private func fireAction(_ action: DispatchAction) {
         lastAction = action
-        print("[VolumeButtonManager] Action: \(action)")
+        actionID += 1
+        print("[VolumeButtonManager] Action: \(action) (id: \(actionID))")
     }
 
     // MARK: - App Lifecycle

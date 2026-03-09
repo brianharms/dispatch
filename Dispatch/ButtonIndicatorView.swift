@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ButtonIndicatorView: View {
     let lastAction: DispatchAction?
+    let actionID: Int
     let isDictating: Bool
 
     // Animation states
@@ -53,8 +54,8 @@ struct ButtonIndicatorView: View {
                 }
             }
         }
-        .onChange(of: lastAction) { _, newAction in
-            guard let action = newAction else { return }
+        .onChange(of: actionID) { _, _ in
+            guard let action = lastAction else { return }
             actionCounter += 1
             handleAction(action)
         }

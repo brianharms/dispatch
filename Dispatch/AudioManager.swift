@@ -13,16 +13,6 @@ final class AudioManager {
     var partialText: String = ""
     var error: String? = nil
 
-    // MARK: - Audio Session Coordination
-
-    /// Called before recording starts — the caller should pause volume button observation
-    /// (which requires `.playback` category) so we can switch to `.record`.
-    var onRecordingSessionWillStart: (() -> Void)?
-
-    /// Called after recording ends — the caller should resume volume button observation
-    /// and restore `.playback` category.
-    var onRecordingSessionDidEnd: (() -> Void)?
-
     // MARK: - Streaming Callbacks
 
     /// Called on each partial recognition result with (currentFullText, previouslySentLength).
@@ -93,20 +83,6 @@ final class AudioManager {
         // Cancel any in-progress task
         recognitionTask?.cancel()
         recognitionTask = nil
-
-        // Notify caller to pause volume observation before we change audio session
-        onRecordingSessionWillStart?()
-
-        // Configure audio session for recording
-        let audioSession = AVAudioSession.sharedInstance()
-        do {
-            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        } catch {
-            self.error = "Failed to configure audio session: \(error.localizedDescription)"
-            onRecordingSessionDidEnd?()
-            return
-        }
 
         // Create recognition request
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -204,16 +180,5 @@ final class AudioManager {
         recognitionRequest = nil
         recognitionTask = nil
         isRecording = false
-
-        // Restore audio session for volume button interception
-        let audioSession = AVAudioSession.sharedInstance()
-        do {
-            try audioSession.setCategory(.playback, mode: .default)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        } catch {
-            // Non-fatal — volume buttons may not work until next app launch
-        }
-
-        onRecordingSessionDidEnd?()
     }
 }

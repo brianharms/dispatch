@@ -8,11 +8,15 @@ final class NetworkManager {
     // MARK: - Public State
 
     var isConnected: Bool = false
-    var screenSize: CGSize = .zero
-    var windowLayouts: [WindowLayout] = []
+    var screenSize: CGSize = CGSize(width: 3008, height: 1692)
+    var windowLayouts: [WindowLayout] = [
+        WindowLayout(id: "1", name: "eyeTerm", x: 544, y: 635, width: 725, height: 837),
+        WindowLayout(id: "2", name: "Catcher", x: 1316, y: 637, width: 570, height: 836),
+        WindowLayout(id: "3", name: "Claude Code", x: 2041, y: 255, width: 570, height: 1244),
+    ]
     var activeIndex: Int = 0
-    var totalWindows: Int = 0
-    var activeWindowName: String = ""
+    var totalWindows: Int = 3
+    var activeWindowName: String = "eyeTerm"
 
     // MARK: - Configuration
 
