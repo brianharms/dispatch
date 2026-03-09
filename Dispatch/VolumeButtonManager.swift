@@ -5,13 +5,12 @@ import Observation
 
 // MARK: - Action Types
 
-enum DispatchAction: String, Sendable {
-    case cycleNext          // Vol Up single
-    case cyclePrevious      // Vol Down single
-    case startDictation     // Vol Up long press (toggle on)
-    case stopDictation      // Vol Up long press (toggle off)
-    case sendDoubleEscape   // Vol Down long press
-    case dualPress          // Both buttons simultaneously
+enum DispatchAction: Equatable {
+    case cycleNext           // Vol Up single press
+    case cyclePrevious       // Vol Down single press
+    case dictationStarted    // Vol Up hold detected (2+ rapid events)
+    case dictationEnded      // Vol Up released (300ms gap after holding)
+    case sendDoubleEscape    // Vol Down long press released
 }
 
 // MARK: - Volume Button Manager
@@ -28,24 +27,22 @@ final class VolumeButtonManager {
 
     // MARK: Configuration
 
-    private let singlePressTimeout: TimeInterval = 0.300
-    private let dualPressWindow: TimeInterval = 0.150
-    private let longPressWindow: TimeInterval = 0.800
-    private let longPressMinRepeats: Int = 3
+    private let gapTimeout: TimeInterval = 0.300  // 2 missed auto-repeat cycles
 
-    // MARK: Internal State
+    // MARK: Internal State Machine
 
-    private enum ButtonDirection {
-        case up, down
+    private enum GestureState {
+        case idle
+        case pendingUp       // got one vol-up, waiting to see if more come
+        case holdingUp       // 2+ vol-up events in rapid succession — dictating
+        case pendingDown     // got one vol-down, waiting to see if more come
+        case holdingDown     // 2+ vol-down events in rapid succession
     }
 
-    private struct PressEvent {
-        let direction: ButtonDirection
-        let timestamp: TimeInterval
-    }
+    private var gestureState: GestureState = .idle
+    private var gapTimer: Timer?
 
-    private var recentPresses: [PressEvent] = []
-    private var pendingSinglePressTimer: Timer?
+    // Volume interception
     private var isResettingVolume: Bool = false
     private var kvoObservation: NSKeyValueObservation?
     private var lastKnownVolume: Float = 0.5
@@ -82,11 +79,11 @@ final class VolumeButtonManager {
         guard isActive else { return }
         isActive = false
 
-        pendingSinglePressTimer?.invalidate()
-        pendingSinglePressTimer = nil
+        gapTimer?.invalidate()
+        gapTimer = nil
+        gestureState = .idle
         kvoObservation?.invalidate()
         kvoObservation = nil
-        recentPresses.removeAll()
 
         if let bg = backgroundObserver {
             NotificationCenter.default.removeObserver(bg)
@@ -115,7 +112,7 @@ final class VolumeButtonManager {
 
     // MARK: - Audio Session
 
-    private func configureAudioSession() {
+    func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
@@ -141,6 +138,15 @@ final class VolumeButtonManager {
         }
     }
 
+    func stopKVO() {
+        kvoObservation?.invalidate()
+        kvoObservation = nil
+    }
+
+    func restartKVO() {
+        startKVO()
+    }
+
     // MARK: - Volume Change Handler
 
     private func handleVolumeChange(newVolume: Float) {
@@ -154,17 +160,16 @@ final class VolumeButtonManager {
         guard abs(delta) > 0.001 else { return }
 
         let direction: ButtonDirection = delta > 0 ? .up : .down
-        let now = ProcessInfo.processInfo.systemUptime
-
-        // Record press event
-        let event = PressEvent(direction: direction, timestamp: now)
-        recentPresses.append(event)
 
         // Reset volume back to midpoint
         resetVolumeToMidpoint()
 
-        // Evaluate gesture state machine
-        evaluateGestures(latestDirection: direction, now: now)
+        // Feed into the state machine
+        handleButtonEvent(direction)
+    }
+
+    private enum ButtonDirection {
+        case up, down
     }
 
     // MARK: - Volume Reset
@@ -181,91 +186,129 @@ final class VolumeButtonManager {
         }
     }
 
-    // MARK: - Gesture State Machine
+    // MARK: - State Machine
 
-    private func evaluateGestures(latestDirection: ButtonDirection, now: TimeInterval) {
-        // Cancel any pending single-press timer — we may be accumulating a multi-press gesture
-        pendingSinglePressTimer?.invalidate()
-        pendingSinglePressTimer = nil
+    private func handleButtonEvent(_ direction: ButtonDirection) {
+        // Cancel existing gap timer — we got a new event
+        gapTimer?.invalidate()
+        gapTimer = nil
 
-        // Prune old events outside the long press window
-        recentPresses.removeAll { now - $0.timestamp > longPressWindow }
+        switch gestureState {
 
-        // --- Check for dual press ---
-        if checkDualPress(now: now) {
-            return
-        }
+        // ── IDLE ──
+        case .idle:
+            switch direction {
+            case .up:
+                gestureState = .pendingUp
+                startGapTimer()
+            case .down:
+                gestureState = .pendingDown
+                startGapTimer()
+            }
 
-        // --- Check for long press ---
-        if checkLongPress(now: now) {
-            return
-        }
+        // ── PENDING UP (got 1 vol-up, waiting to see if it's a hold) ──
+        case .pendingUp:
+            if direction == .up {
+                // Second vol-up within gap window → it's a hold — start dictation
+                gestureState = .holdingUp
+                isDictating = true
+                fireAction(.dictationStarted)
+                mediumHaptic.impactOccurred()
+                startGapTimer()  // watch for release
+            } else {
+                // Got a down event while pending up — treat the up as single, then start pending down
+                commitSinglePress(.up)
+                gestureState = .pendingDown
+                startGapTimer()
+            }
 
-        // --- Defer single press: wait to see if more presses arrive ---
-        let capturedDirection = latestDirection
-        pendingSinglePressTimer = Timer.scheduledTimer(
-            withTimeInterval: singlePressTimeout,
-            repeats: false
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.commitSinglePress(direction: capturedDirection)
+        // ── HOLDING UP (dictating — vol-up events keep coming) ──
+        case .holdingUp:
+            if direction == .up {
+                // Still holding — restart gap timer
+                startGapTimer()
+            } else {
+                // Got a down while holding up — that's unusual, ignore the down event
+                // and keep watching for the up release
+                startGapTimer()
+            }
+
+        // ── PENDING DOWN (got 1 vol-down, waiting to see if it's a hold) ──
+        case .pendingDown:
+            if direction == .down {
+                // Second vol-down within gap window → it's a hold
+                gestureState = .holdingDown
+                startGapTimer()
+            } else {
+                // Got an up event while pending down — treat down as single, start pending up
+                commitSinglePress(.down)
+                gestureState = .pendingUp
+                startGapTimer()
+            }
+
+        // ── HOLDING DOWN (vol-down events keep coming) ──
+        case .holdingDown:
+            if direction == .down {
+                // Still holding — restart gap timer
+                startGapTimer()
+            } else {
+                // Got an up while holding down — ignore, keep watching for release
+                startGapTimer()
             }
         }
     }
 
-    // MARK: - Dual Press Detection
+    // MARK: - Gap Timer
 
-    /// Returns true if a dual press was detected and consumed.
-    private func checkDualPress(now: TimeInterval) -> Bool {
-        // Need at least 2 recent events
-        guard recentPresses.count >= 2 else { return false }
-
-        // Look for an up and a down within the dual press window
-        let recent = recentPresses.filter { now - $0.timestamp <= dualPressWindow }
-        let hasUp = recent.contains { $0.direction == .up }
-        let hasDown = recent.contains { $0.direction == .down }
-
-        if hasUp && hasDown {
-            recentPresses.removeAll()
-            fireAction(.dualPress)
-            heavyHaptic.impactOccurred()
-            return true
+    /// Starts a 300ms gap timer. When it fires, it means the button was released.
+    private func startGapTimer() {
+        gapTimer?.invalidate()
+        gapTimer = Timer.scheduledTimer(
+            withTimeInterval: gapTimeout,
+            repeats: false
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.gapTimerFired()
+            }
         }
-        return false
     }
 
-    // MARK: - Long Press Detection
+    private func gapTimerFired() {
+        let previousState = gestureState
+        gapTimer = nil
 
-    /// Returns true if a long press was detected and consumed.
-    private func checkLongPress(now: TimeInterval) -> Bool {
-        let windowStart = now - longPressWindow
+        switch previousState {
+        case .idle:
+            break  // nothing to do
 
-        let upCount = recentPresses.filter { $0.direction == .up && $0.timestamp >= windowStart }.count
-        let downCount = recentPresses.filter { $0.direction == .down && $0.timestamp >= windowStart }.count
+        case .pendingUp:
+            // Only one vol-up event, then silence → single press
+            commitSinglePress(.up)
+            gestureState = .idle
 
-        if upCount >= longPressMinRepeats {
-            recentPresses.removeAll()
-            handleLongPressUp()
-            mediumHaptic.impactOccurred()
-            return true
-        }
+        case .holdingUp:
+            // Was dictating, button released → stop dictation + send Enter
+            isDictating = false
+            fireAction(.dictationEnded)
+            heavyHaptic.impactOccurred()
+            gestureState = .idle
 
-        if downCount >= longPressMinRepeats {
-            recentPresses.removeAll()
+        case .pendingDown:
+            // Only one vol-down event, then silence → single press
+            commitSinglePress(.down)
+            gestureState = .idle
+
+        case .holdingDown:
+            // Vol-down long press released → double escape
             fireAction(.sendDoubleEscape)
-            mediumHaptic.impactOccurred()
-            return true
+            heavyHaptic.impactOccurred()
+            gestureState = .idle
         }
-
-        return false
     }
 
     // MARK: - Single Press
 
-    private func commitSinglePress(direction: ButtonDirection) {
-        // Clear the press history since we're committing
-        recentPresses.removeAll()
-
+    private func commitSinglePress(_ direction: ButtonDirection) {
         switch direction {
         case .up:
             fireAction(.cycleNext)
@@ -275,18 +318,11 @@ final class VolumeButtonManager {
         lightHaptic.impactOccurred()
     }
 
-    // MARK: - Long Press Up (Dictation Toggle)
-
-    private func handleLongPressUp() {
-        isDictating.toggle()
-        fireAction(isDictating ? .startDictation : .stopDictation)
-    }
-
     // MARK: - Action Dispatch
 
     private func fireAction(_ action: DispatchAction) {
         lastAction = action
-        print("[VolumeButtonManager] Action: \(action.rawValue)")
+        print("[VolumeButtonManager] Action: \(action)")
     }
 
     // MARK: - App Lifecycle
@@ -316,9 +352,9 @@ final class VolumeButtonManager {
     private func pauseObservation() {
         kvoObservation?.invalidate()
         kvoObservation = nil
-        pendingSinglePressTimer?.invalidate()
-        pendingSinglePressTimer = nil
-        recentPresses.removeAll()
+        gapTimer?.invalidate()
+        gapTimer = nil
+        gestureState = .idle
     }
 
     private func resumeObservation() {
