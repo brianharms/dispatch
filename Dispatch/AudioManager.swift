@@ -23,12 +23,24 @@ final class AudioManager {
     /// and restore `.playback` category.
     var onRecordingSessionDidEnd: (() -> Void)?
 
+    // MARK: - Streaming Callbacks
+
+    /// Called on each partial recognition result with (currentFullText, previouslySentLength).
+    /// The receiver can diff to determine what's new vs. what was revised.
+    var onPartialResult: ((String, Int) -> Void)?
+
+    /// Called when recognition finalizes with the complete text.
+    var onFinalResult: ((String) -> Void)?
+
     // MARK: - Private
 
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
     private var audioEngine = AVAudioEngine()
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
+
+    /// Tracks what we last sent to the server so the receiver can compute diffs.
+    private var lastSentText: String = ""
 
     // MARK: - Permissions
 
@@ -70,6 +82,7 @@ final class AudioManager {
         error = nil
         transcribedText = ""
         partialText = ""
+        lastSentText = ""
 
         // Verify speech recognizer is available
         guard let speechRecognizer, speechRecognizer.isAvailable else {
@@ -114,9 +127,15 @@ final class AudioManager {
                     if result.isFinal {
                         self.transcribedText = text
                         self.partialText = ""
+                        // Fire final result callback
+                        self.onFinalResult?(text)
+                        self.lastSentText = ""
                         self.cleanUp()
                     } else {
                         self.partialText = text
+                        // Stream partial result to server
+                        self.onPartialResult?(text, self.lastSentText.count)
+                        self.lastSentText = text
                     }
                 }
 
@@ -167,8 +186,12 @@ final class AudioManager {
         // promote partials to transcribed text as a fallback.
         if !partialText.isEmpty && transcribedText.isEmpty {
             transcribedText = partialText
+            // Fire final with whatever we have
+            onFinalResult?(partialText)
             partialText = ""
         }
+
+        lastSentText = ""
     }
 
     // MARK: - Cleanup
