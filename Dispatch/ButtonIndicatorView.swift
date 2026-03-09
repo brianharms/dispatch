@@ -88,14 +88,11 @@ struct ButtonIndicatorView: View {
                 }
             }
 
-        case .startDictation:
-            // The isDictating state drives the persistent red dot
+        case .dictationStarted:
             showVolUpFlash = false
-            break
 
-        case .stopDictation:
+        case .dictationEnded:
             showVolUpFlash = false
-            break
 
         case .sendDoubleEscape:
             volDownText = "esc"
@@ -105,22 +102,6 @@ struct ButtonIndicatorView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 guard actionCounter == currentCounter else { return }
                 withAnimation(.easeOut(duration: 0.3)) {
-                    showVolDownFlash = false
-                }
-            }
-
-        case .dualPress:
-            // Flash both sides
-            volUpText = "+"
-            volDownText = "\u{2212}"
-            withAnimation(.easeIn(duration: 0.05)) {
-                showVolUpFlash = true
-                showVolDownFlash = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                guard actionCounter == currentCounter else { return }
-                withAnimation(.easeOut(duration: 0.3)) {
-                    showVolUpFlash = false
                     showVolDownFlash = false
                 }
             }
