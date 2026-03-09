@@ -18,7 +18,7 @@ targets:
         CFBundleDisplayName: Dispatch
         UILaunchStoryboardName: ""
         UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeRight
         UIRequiresFullScreen: true
         NSMicrophoneUsageDescription: "Dispatch uses the microphone for voice dictation to your terminal."
         NSSpeechRecognitionUsageDescription: "Dispatch uses speech recognition to transcribe your voice commands."
@@ -40,4 +40,4 @@ targets:
         PRODUCT_NAME: Dispatch
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_UIStatusBarStyle: ""
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationLandscapeRight
