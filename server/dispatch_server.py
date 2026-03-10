@@ -6,6 +6,8 @@ import os
 import socket
 import subprocess
 import tempfile
+import threading
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,6 +31,10 @@ state = {
 
 # Streaming dictation state
 current_typed_text = ""
+
+# Cached status response — updated by background thread, served instantly
+_cached_status = {}
+_cache_lock = threading.Lock()
 
 
 # ---------------------------------------------------------------------------
@@ -71,13 +77,23 @@ def refresh_windows():
 
 
 def lock_windows():
-    """Snapshot the window list. Locked until /refresh or restart."""
+    """Snapshot the window list, sorted by x-position (left to right)."""
     ids, names = refresh_windows()
+
+    # Sort windows by x-position so "next" = right, "prev" = left
+    if ids:
+        layout_windows, _ = get_window_layout()
+        id_to_pos = {str(w["id"]): (w["x"], w["y"]) for w in layout_windows}
+        paired = list(zip(ids, names))
+        paired.sort(key=lambda p: id_to_pos.get(str(p[0]), (0, 0)))
+        ids = [p[0] for p in paired]
+        names = [p[1] for p in paired]
+
     state["window_ids"] = ids
     state["window_names"] = names
     if state["current_index"] >= len(ids):
         state["current_index"] = 0
-    print(f"  Locked {len(ids)} windows")
+    print(f"  Locked {len(ids)} windows (sorted left-to-right)")
 
 
 def get_window_name(index):
@@ -101,64 +117,38 @@ def get_window_name(index):
 
 
 def activate_and_highlight(new_index):
-    """Activate window, restore old highlight, apply new highlight — single osascript call."""
+    """Activate and select window. Color highlighting is handled by iTerm2's focus_tab_color.py."""
     global current_typed_text
 
     if new_index < 0 or new_index >= len(state["window_ids"]):
         return None
     new_id = state["window_ids"][new_index]
-    old_id = state["highlighted_id"]
-    old_color = state["saved_color"]
 
     # Reset streaming dictation state when cycling windows
     current_typed_text = ""
 
-    parts = [f'tell application "{TARGET_APP}"']
-
-    # Restore old window's background color
-    if old_id is not None and old_color is not None:
-        r, g, b = old_color.split(',')
-        parts.append(f'''
-        try
-            set s to current session of current tab of (first window whose id is {old_id})
-            set background color of s to {{{r}, {g}, {b}}}
-        end try''')
-
-    # Activate and select new window
-    parts.append(f'''
+    script = f'''
+    tell application "{TARGET_APP}"
         activate
         set w to (first window whose id is {new_id})
-        select w''')
-
-    # Save bg color, apply highlight, get name
-    parts.append(f'''
-        set s to current session of current tab of w
-        set bg to background color of s
-        set savedColor to (item 1 of bg as text) & "," & (item 2 of bg as text) & "," & (item 3 of bg as text)
-        set background color of s to {HIGHLIGHT_COLOR}
-        set winName to name of w
-        return savedColor & "|||" & winName
-    end tell''')
-
-    script = '\n'.join(parts)
+        select w
+        return name of w
+    end tell
+    '''
+    name = None
     try:
         result = subprocess.run(
             ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=5
+            capture_output=True, text=True, timeout=3
         )
-        output = result.stdout.strip()
+        name = result.stdout.strip() or None
     except subprocess.TimeoutExpired:
         print("  [error] activate_and_highlight timed out")
-        return state["window_names"][new_index] if new_index < len(state["window_names"]) else "?"
 
-    if '|||' in output:
-        saved, name = output.split('|||', 1)
-        state["saved_color"] = saved
-        state["highlighted_id"] = new_id
+    if name:
         state["window_names"][new_index] = name
-        return name
 
-    return state["window_names"][new_index] if new_index < len(state["window_names"]) else "?"
+    return name or (state["window_names"][new_index] if new_index < len(state["window_names"]) else "?")
 
 
 def set_bg_color(wid, color_str):
@@ -409,22 +399,64 @@ def build_status():
     idx = state["current_index"]
     name = get_window_name(idx) if total > 0 else "No Windows"
 
-    windows = []
-    for i, (wid, wname) in enumerate(zip(state["window_ids"], state["window_names"])):
-        windows.append({"id": str(wid), "name": wname})
-
     screen = get_screen_size()
-    layout_windows, _ = get_window_layout()
+    layout_windows, layout_active_index = get_window_layout()
+
+    # Auto-refresh locked windows if layout has windows we don't know about
+    layout_ids = {str(w["id"]) for w in layout_windows}
+    locked_ids = {str(wid) for wid in state["window_ids"]}
+    if layout_ids != locked_ids:
+        print(f"  [auto-refresh] Layout has {len(layout_ids)} windows, locked has {len(locked_ids)} — re-locking")
+        lock_windows()
+        total = len(state["window_ids"])
+        idx = state["current_index"]
+        name = get_window_name(idx) if total > 0 else "No Windows"
+
+    # Detect if the user changed the active window on the Mac side
+    if total > 0 and layout_windows:
+        actual_active_id = layout_windows[layout_active_index]["id"] if layout_active_index < len(layout_windows) else None
+        if actual_active_id is not None:
+            # Find this window in our locked list
+            for i, wid in enumerate(state["window_ids"]):
+                if str(wid) == str(actual_active_id) and i != idx:
+                    print(f"  [sync] Active window changed on Mac: [{idx}] -> [{i}]")
+                    state["current_index"] = i
+                    idx = i
+                    name = get_window_name(idx)
+                    break
+
+    # Sort layout windows spatially: left-to-right, top-to-bottom (reading order)
+    if layout_windows:
+        layout_windows.sort(key=lambda w: (w["x"], w["y"]))
+
+    # Active window ID for the app to match against layout
+    active_id = str(state["window_ids"][idx]) if total > 0 else ""
 
     return {
-        "windows": windows,
         "current_index": idx,
         "total": total,
         "active_window": name,
+        "active_window_id": active_id,
         "mode": state["mode"],
         "screen": screen,
         "layout": layout_windows,
     }
+
+
+def _refresh_cache_loop():
+    """Background thread: refresh cached status every 0.5s."""
+    global _cached_status
+    while True:
+        try:
+            total = len(state["window_ids"])
+            if total == 0:
+                lock_windows()
+            status = build_status()
+            with _cache_lock:
+                _cached_status = status
+        except Exception as e:
+            print(f"  [cache] refresh error: {e}")
+        time.sleep(0.5)
 
 
 class DispatchHandler(BaseHTTPRequestHandler):
@@ -458,10 +490,13 @@ class DispatchHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/status":
-            total = len(state["window_ids"])
-            if total == 0:
-                lock_windows()
-            self.send_json(build_status())
+            with _cache_lock:
+                status = dict(_cached_status) if _cached_status else {}
+            if status:
+                self.send_json(status)
+            else:
+                # First request before cache is populated
+                self.send_json(build_status())
 
         elif self.path == "/ping":
             self.send_json({"ok": True})
@@ -537,8 +572,14 @@ class DispatchHandler(BaseHTTPRequestHandler):
 
             idx = state["current_index"]
             name = activate_and_highlight(idx)
+            active_id = str(state["window_ids"][idx])
             print(f"  Cycled {direction} -> [{idx}] {name}")
-            self.send_json(build_status())
+            # Return minimal response — skip heavy build_status() AppleScript calls
+            self.send_json({
+                "active_window_id": active_id,
+                "current_index": idx,
+                "active_window": name,
+            })
 
         elif self.path == "/stream-text":
             text = body.get("text", "")
@@ -606,6 +647,39 @@ class DispatchHandler(BaseHTTPRequestHandler):
 # Main
 # ---------------------------------------------------------------------------
 
+def start_bonjour():
+    """Advertise this server via Bonjour/mDNS so the phone can find it."""
+    try:
+        from zeroconf import Zeroconf, ServiceInfo
+    except ImportError:
+        print("  [bonjour] zeroconf not installed — run: pip install zeroconf")
+        print("  [bonjour] Phone will need manual IP configuration")
+        return None, None
+
+    hostname = socket.gethostname()
+    if not hostname.endswith('.local.'):
+        hostname_mdns = hostname.replace('.local', '') + '.local.'
+    else:
+        hostname_mdns = hostname
+
+    # Get local IP for the service info
+    local_ip = socket.gethostbyname(socket.gethostname())
+
+    info = ServiceInfo(
+        "_dispatch._tcp.local.",
+        "Dispatch Server._dispatch._tcp.local.",
+        addresses=[socket.inet_aton(local_ip)],
+        port=PORT,
+        properties={"version": "1"},
+        server=hostname_mdns,
+    )
+
+    zc = Zeroconf()
+    zc.register_service(info)
+    print(f"  [bonjour] Advertising as _dispatch._tcp on {local_ip}:{PORT}")
+    return zc, info
+
+
 def main():
     hostname = socket.gethostname().replace('.local', '')
     lock_windows()
@@ -618,17 +692,21 @@ def main():
         print(f"    [{i}] id={wid} — {name}")
     print(f"\n  Waiting for phone...\n")
 
+    # Advertise via Bonjour
+    zc, zc_info = start_bonjour()
+
+    # Start background cache refresh — keeps /status instant
+    cache_thread = threading.Thread(target=_refresh_cache_loop, daemon=True)
+    cache_thread.start()
+
     server = HTTPServer(('0.0.0.0', PORT), DispatchHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        # Restore highlighted window's original color on shutdown
-        if state["highlighted_id"] is not None and state["saved_color"] is not None:
-            try:
-                set_bg_color(state["highlighted_id"], state["saved_color"])
-            except Exception:
-                pass
         print("\n  Shutting down.")
+        if zc and zc_info:
+            zc.unregister_service(zc_info)
+            zc.close()
         server.server_close()
 
 

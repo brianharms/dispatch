@@ -11,7 +11,7 @@ struct HiddenVolumeView: UIViewRepresentable {
     func makeUIView(context: Context) -> MPVolumeView {
         let volumeView = MPVolumeView(frame: .zero)
         // Move off-screen and make invisible — but keep in hierarchy to suppress HUD
-        volumeView.alpha = 0.001
+        volumeView.alpha = 0.0001
         volumeView.clipsToBounds = true
         volumeView.frame = CGRect(x: -1000, y: -1000, width: 1, height: 1)
 

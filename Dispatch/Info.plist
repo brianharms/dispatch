@@ -27,7 +27,7 @@
 	</dict>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_http._tcp</string>
+		<string>_dispatch._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Dispatch connects to a server on your Mac to control terminal windows.</string>

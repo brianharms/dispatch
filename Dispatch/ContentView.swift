@@ -21,32 +21,39 @@ struct ContentView: View {
                 actionID: volumeManager.actionID,
                 isDictating: volumeManager.isDictating
             )
+            .allowsHitTesting(false)
 
             // Hidden volume view for HUD suppression
             HiddenVolumeView(manager: volumeManager)
                 .frame(width: 0, height: 0)
 
-            // "dispatch." branding — bottom-left
+            #if targetEnvironment(simulator)
+            // Simulator-only touch targets (no volume buttons in sim)
+            SimulatorControlsView(volumeManager: volumeManager)
+            #endif
+
+            // Bottom bar: branding + connection status
             VStack {
                 Spacer()
-                HStack {
-                    Text("dispatch.")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
-                        .padding(.leading, 20)
-                        .padding(.bottom, 16)
-                    Spacer()
-                }
+                Text("dispatch\(networkManager.isConnected ? "." : "!")")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(Color(red: 0.4, green: 0.4, blue: 0.4))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 20)
+                    .padding(.bottom, 16)
             }
+            .allowsHitTesting(false)
         }
         .statusBarHidden(true)
         .onAppear {
             volumeManager.setup()
-            networkManager.startPolling()
+            networkManager.startDiscovery()
+            audioManager.requestPermissions()
             wireAudioCallbacks()
         }
         .onDisappear {
             volumeManager.teardown()
+            networkManager.stopDiscovery()
             networkManager.stopPolling()
             audioManager.stopRecording()
         }
@@ -66,7 +73,6 @@ struct ContentView: View {
             networkManager.cyclePrevious()
 
         case .dictationStarted:
-            audioManager.requestPermissions()
             audioManager.startRecording()
 
         case .dictationEnded:

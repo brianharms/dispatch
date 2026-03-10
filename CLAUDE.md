@@ -92,9 +92,20 @@ dispatch/
 │   ├── dispatch_server.py      # HTTP server + AppleScript
 │   └── transcribe.swift        # Speech-to-text (from twist)
 ├── Dispatch.xcodeproj/
+├── iterm-scripts/               # iTerm2 Python API scripts
+│   ├── focus_tab_color.py      # Window focus color highlight
+│   └── SKILL.md                # /focus-color skill definition
 ├── CLAUDE.md                    # This file
 └── SESSION_LOG.md
 ```
+
+## Associated: iTerm2 Focus Window Color
+
+`iterm-scripts/focus_tab_color.py` — an iTerm2 Python API script that highlights the focused iTerm2 window with a blue tab color and restores the previous color on unfocus. This supports dispatch's visual highlight of the active terminal window.
+
+- **Installed at**: `~/Library/Application Support/iTerm2/Scripts/AutoLaunch/focus_tab_color.py`
+- **Toggle skill**: `/focus-color` (creates/removes `~/.claude/focus_color_enabled`)
+- **Skill definition**: `iterm-scripts/SKILL.md`
 
 ## Reference Project
 

@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import MediaPlayer
 import UIKit
 import Observation
@@ -241,9 +241,11 @@ final class VolumeButtonManager {
         // ── PENDING DOWN (got 1 vol-down, waiting to see if it's a hold) ──
         case .pendingDown:
             if direction == .down {
-                // Second vol-down within gap window → it's a hold
+                // Second vol-down within gap window → it's a hold — fire escape NOW
                 gestureState = .holdingDown
-                startGapTimer()
+                fireAction(.sendDoubleEscape)
+                heavyHaptic.impactOccurred()
+                startGapTimer()  // watch for release to return to idle
             } else {
                 // Got an up event while pending down — treat down as single, start pending up
                 commitSinglePress(.down)
@@ -304,9 +306,7 @@ final class VolumeButtonManager {
             gestureState = .idle
 
         case .holdingDown:
-            // Vol-down long press released → double escape
-            fireAction(.sendDoubleEscape)
-            heavyHaptic.impactOccurred()
+            // Vol-down long press released — escape already fired on hold start
             gestureState = .idle
         }
     }
@@ -329,6 +329,16 @@ final class VolumeButtonManager {
         lastAction = action
         actionID += 1
         print("[VolumeButtonManager] Action: \(action) (id: \(actionID))")
+    }
+
+    /// Called by simulator touch controls to bypass the volume KVO state machine.
+    func simulateAction(_ action: DispatchAction) {
+        if action == .dictationStarted {
+            isDictating = true
+        } else if action == .dictationEnded {
+            isDictating = false
+        }
+        fireAction(action)
     }
 
     // MARK: - App Lifecycle

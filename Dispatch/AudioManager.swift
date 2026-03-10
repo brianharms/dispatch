@@ -1,6 +1,6 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Observation
-import Speech
+@preconcurrency import Speech
 
 @Observable
 @MainActor
@@ -35,10 +35,17 @@ final class AudioManager {
     // MARK: - Permissions
 
     func requestPermissions() {
-        SFSpeechRecognizer.requestAuthorization { [weak self] status in
-            Task { @MainActor [weak self] in
+        Task.detached {
+            let speechStatus = await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { status in
+                    continuation.resume(returning: status)
+                }
+            }
+            let micGranted = await AVAudioApplication.requestRecordPermission()
+
+            await MainActor.run { [weak self] in
                 guard let self else { return }
-                switch status {
+                switch speechStatus {
                 case .authorized:
                     break
                 case .denied:
@@ -50,13 +57,7 @@ final class AudioManager {
                 @unknown default:
                     self.error = "Unknown speech recognition authorization status."
                 }
-            }
-        }
-
-        AVAudioApplication.requestRecordPermission { [weak self] granted in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if !granted {
+                if !micGranted {
                     self.error = "Microphone permission denied."
                 }
             }
@@ -93,53 +94,59 @@ final class AudioManager {
         recognitionRequest = request
 
         // Start recognition task
-        recognitionTask = speechRecognizer.recognitionTask(with: request) {
-            [weak self] result, taskError in
-            Task { @MainActor [weak self] in
+        recognitionTask = speechRecognizer.recognitionTask(with: request) { result, taskError in
+            // Extract values before crossing to main actor (avoid sending non-Sendable types)
+            let text = result?.bestTranscription.formattedString
+            let isFinal = result?.isFinal ?? false
+            let error = taskError
+
+            DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
 
-                if let result {
-                    let text = result.bestTranscription.formattedString
-                    if result.isFinal {
+                if let text {
+                    if isFinal {
                         self.transcribedText = text
                         self.partialText = ""
-                        // Fire final result callback
                         self.onFinalResult?(text)
                         self.lastSentText = ""
                         self.cleanUp()
                     } else {
                         self.partialText = text
-                        // Stream partial result to server
                         self.onPartialResult?(text, self.lastSentText.count)
                         self.lastSentText = text
                     }
                 }
 
-                if let taskError {
-                    // Don't overwrite a final result with an error from cancellation
-                    let nsError = taskError as NSError
+                if let error {
+                    let nsError = error as NSError
                     let isCancellation = nsError.domain == "kAFAssistantErrorDomain"
                         && nsError.code == 216
                     if !isCancellation && self.transcribedText.isEmpty {
                         self.error =
-                            "Recognition failed: \(taskError.localizedDescription)"
+                            "Recognition failed: \(error.localizedDescription)"
                     }
                     self.cleanUp()
                 }
             }
         }
 
-        // Set up audio engine tap
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) {
-            [weak self] buffer, _ in
-            self?.recognitionRequest?.append(buffer)
-        }
-
-        // Start audio engine
-        audioEngine.prepare()
+        // Set up audio engine tap — guard against simulator/missing audio input
         do {
+            let inputNode = audioEngine.inputNode
+            let recordingFormat = inputNode.outputFormat(forBus: 0)
+
+            // Validate format — simulator returns 0 channels / 0 sample rate
+            guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
+                self.error = "No audio input available."
+                cleanUp()
+                return
+            }
+
+            // Install tap via nonisolated helper so the closure doesn't inherit @MainActor
+            Self.installAudioTap(on: inputNode, format: recordingFormat, request: request)
+
+            // Start audio engine
+            audioEngine.prepare()
             try audioEngine.start()
             isRecording = true
         } catch {
@@ -168,6 +175,18 @@ final class AudioManager {
         }
 
         lastSentText = ""
+    }
+
+    // MARK: - Audio Tap (nonisolated to avoid @MainActor inheritance on realtime audio thread)
+
+    nonisolated private static func installAudioTap(
+        on inputNode: AVAudioInputNode,
+        format: AVAudioFormat,
+        request: SFSpeechAudioBufferRecognitionRequest
+    ) {
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+            request.append(buffer)
+        }
     }
 
     // MARK: - Cleanup
