@@ -19,15 +19,15 @@
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
-	<string>11</string>
+	<string>1</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<key>NSAllowsArbitraryLoads</key>
+		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSBonjourServices</key>
 	<array>
-		<string>_dispatch._tcp</string>
+		<string>_http._tcp</string>
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Dispatch connects to a server on your Mac to control terminal windows.</string>

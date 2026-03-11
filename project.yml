@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.ritualindustries
   deploymentTarget:
     iOS: "17.0"
+    watchOS: "10.0"
 
 targets:
   Dispatch:
@@ -41,3 +42,32 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_UIStatusBarStyle: ""
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationLandscapeLeft
+
+  Dispatch Watch App:
+    type: application
+    platform: watchOS
+    sources:
+      - path: Dispatch Watch App
+        excludes:
+          - Info.plist
+    info:
+      path: Dispatch Watch App/Info.plist
+      properties:
+        CFBundleDisplayName: Dispatch
+        NSMicrophoneUsageDescription: "Dispatch needs microphone access for voice dictation."
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        WKApplication: true
+        WKWatchOnly: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ritualindustries.dispatch.watch
+        DEVELOPMENT_TEAM: X6HPD4S92D
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        PRODUCT_MODULE_NAME: DispatchWatchApp
+        PRODUCT_NAME: "Dispatch Watch App"
+        TARGETED_DEVICE_FAMILY: "4"

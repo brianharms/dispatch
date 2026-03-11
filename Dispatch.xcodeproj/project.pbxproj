@@ -7,42 +7,56 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		05382B96E23721CF90F881EF /* VolumeDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDCB96208506E9F618B1488B /* VolumeDebugView.swift */; };
+		0D161B8133A53AA547D04DB1 /* DispatchWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7788C48376C094A5155389 /* DispatchWatchApp.swift */; };
+		2B4852DC334DC22D0B9D200E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9BC98ACECF7520E54CFC41D3 /* Assets.xcassets */; };
+		2D642A03BF4F057BD0B59E96 /* NetworkDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D19E5F46D38C4D533B8D744 /* NetworkDebugView.swift */; };
 		396D19F627ECC95D70F25DFB /* VolumeButtonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */; };
 		436072B45820896FCE331898 /* TerminalLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E8A59F864D0A598F27DE4C /* TerminalLayoutView.swift */; };
 		5EEBA710AECEFD76830FDAD6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F2A7FA193517EE142FAD018C /* Assets.xcassets */; };
 		694A119D964D032BDE0D7365 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A73AF55B335600CA2334960 /* NetworkManager.swift */; };
+		7F1A64207EE218101A03848D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8887EA9C447C10246DFE9139 /* SettingsView.swift */; };
 		81B12A552952630E95B97E6A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B511BD345F5EABC2DA150C31 /* ContentView.swift */; };
+		81F6468102F73F2F21EFEB6A /* SimulatorControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DBAA33991B22E68D5641C7E /* SimulatorControlsView.swift */; };
+		8295C88D2543267B793F19B1 /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9DAD170C10C617F3CDD7A90 /* AudioRecorder.swift */; };
+		8336C4EBD6EA1BB11BFA09F4 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6597D664328EEF0DA27B221 /* NetworkManager.swift */; };
 		9A48611D40A855C048D30539 /* WindowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570F45CF394BC3E25EA6DF2D /* WindowLayout.swift */; };
 		A028EA8EFDF0BFDFF55E9F72 /* HiddenVolumeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F140F4A22394B5240954E449 /* HiddenVolumeView.swift */; };
-		273B8150F9A8854DC3B10D0A /* VolumeDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C4C38938009B873CB9487A6 /* VolumeDebugView.swift */; };
 		B296AC3C38E94FE8EB1367B3 /* AudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */; };
 		C254C06724D4559E5DB62F73 /* ButtonIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 595AE09962CE4541CE91D84C /* ButtonIndicatorView.swift */; };
+		DEDBB73BCC5362060616AD34 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0106299FCDD4BFCF2D2836E9 /* ContentView.swift */; };
 		F367233B6EE6766ADA060F3C /* DispatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */; };
-		D1A2B3C4E5F60718293A4B5C /* SimulatorControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B3C4D5F6071829A3B4C5D6 /* SimulatorControlsView.swift */; };
-		A1B2C3D4E5F6071829304152 /* NetworkDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C3D4E5F60718293A4B5C6D /* NetworkDebugView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0106299FCDD4BFCF2D2836E9 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		1A85B85627C8BE406EB8DF1C /* Dispatch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Dispatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2A73AF55B335600CA2334960 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
+		3D19E5F46D38C4D533B8D744 /* NetworkDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDebugView.swift; sourceTree = "<group>"; };
 		570F45CF394BC3E25EA6DF2D /* WindowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowLayout.swift; sourceTree = "<group>"; };
 		595AE09962CE4541CE91D84C /* ButtonIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonIndicatorView.swift; sourceTree = "<group>"; };
 		8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioManager.swift; sourceTree = "<group>"; };
+		8887EA9C447C10246DFE9139 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		8DBAA33991B22E68D5641C7E /* SimulatorControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorControlsView.swift; sourceTree = "<group>"; };
+		9BC98ACECF7520E54CFC41D3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DispatchApp.swift; sourceTree = "<group>"; };
 		B511BD345F5EABC2DA150C31 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B6597D664328EEF0DA27B221 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
 		B9E8A59F864D0A598F27DE4C /* TerminalLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLayoutView.swift; sourceTree = "<group>"; };
 		CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeButtonManager.swift; sourceTree = "<group>"; };
+		D4F03A21ED5F35061ADCE904 /* Dispatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Dispatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		DDCB96208506E9F618B1488B /* VolumeDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeDebugView.swift; sourceTree = "<group>"; };
+		EC7788C48376C094A5155389 /* DispatchWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DispatchWatchApp.swift; sourceTree = "<group>"; };
 		F140F4A22394B5240954E449 /* HiddenVolumeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenVolumeView.swift; sourceTree = "<group>"; };
-		5C4C38938009B873CB9487A6 /* VolumeDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeDebugView.swift; sourceTree = "<group>"; };
 		F2A7FA193517EE142FAD018C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		E2B3C4D5F6071829A3B4C5D6 /* SimulatorControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorControlsView.swift; sourceTree = "<group>"; };
-		B2C3D4E5F60718293A4B5C6D /* NetworkDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDebugView.swift; sourceTree = "<group>"; };
+		F9DAD170C10C617F3CDD7A90 /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
 		261B70FC90EBB0F0C3D583F8 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				D4F03A21ED5F35061ADCE904 /* Dispatch Watch App.app */,
 				1A85B85627C8BE406EB8DF1C /* Dispatch.app */,
 			);
 			name = Products;
@@ -57,12 +71,12 @@
 				B511BD345F5EABC2DA150C31 /* ContentView.swift */,
 				A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */,
 				F140F4A22394B5240954E449 /* HiddenVolumeView.swift */,
-				5C4C38938009B873CB9487A6 /* VolumeDebugView.swift */,
-				B2C3D4E5F60718293A4B5C6D /* NetworkDebugView.swift */,
+				3D19E5F46D38C4D533B8D744 /* NetworkDebugView.swift */,
 				2A73AF55B335600CA2334960 /* NetworkManager.swift */,
+				8DBAA33991B22E68D5641C7E /* SimulatorControlsView.swift */,
 				B9E8A59F864D0A598F27DE4C /* TerminalLayoutView.swift */,
 				CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */,
-				E2B3C4D5F6071829A3B4C5D6 /* SimulatorControlsView.swift */,
+				DDCB96208506E9F618B1488B /* VolumeDebugView.swift */,
 				570F45CF394BC3E25EA6DF2D /* WindowLayout.swift */,
 			);
 			path = Dispatch;
@@ -72,8 +86,22 @@
 			isa = PBXGroup;
 			children = (
 				746B01343AD58FE591E8AC47 /* Dispatch */,
+				CD0F185A5AABFA1334DC662D /* Dispatch Watch App */,
 				261B70FC90EBB0F0C3D583F8 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		CD0F185A5AABFA1334DC662D /* Dispatch Watch App */ = {
+			isa = PBXGroup;
+			children = (
+				9BC98ACECF7520E54CFC41D3 /* Assets.xcassets */,
+				F9DAD170C10C617F3CDD7A90 /* AudioRecorder.swift */,
+				0106299FCDD4BFCF2D2836E9 /* ContentView.swift */,
+				EC7788C48376C094A5155389 /* DispatchWatchApp.swift */,
+				B6597D664328EEF0DA27B221 /* NetworkManager.swift */,
+				8887EA9C447C10246DFE9139 /* SettingsView.swift */,
+			);
+			path = "Dispatch Watch App";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -97,6 +125,24 @@
 			productReference = 1A85B85627C8BE406EB8DF1C /* Dispatch.app */;
 			productType = "com.apple.product-type.application";
 		};
+		FFAD9C4686E4405983447199 /* Dispatch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0955043A72EAF1F6E5510AC7 /* Build configuration list for PBXNativeTarget "Dispatch Watch App" */;
+			buildPhases = (
+				5F2F8864EABD25E9E2CC121C /* Sources */,
+				42C5C6511FCC5DC6DA5CCE62 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Dispatch Watch App";
+			packageProductDependencies = (
+			);
+			productName = "Dispatch Watch App";
+			productReference = D4F03A21ED5F35061ADCE904 /* Dispatch Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -107,6 +153,10 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					9DE155901122A52FEC36F9DD = {
+						DevelopmentTeam = X6HPD4S92D;
+						ProvisioningStyle = Automatic;
+					};
+					FFAD9C4686E4405983447199 = {
 						DevelopmentTeam = X6HPD4S92D;
 						ProvisioningStyle = Automatic;
 					};
@@ -127,11 +177,20 @@
 			projectRoot = "";
 			targets = (
 				9DE155901122A52FEC36F9DD /* Dispatch */,
+				FFAD9C4686E4405983447199 /* Dispatch Watch App */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		42C5C6511FCC5DC6DA5CCE62 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2B4852DC334DC22D0B9D200E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A7A153CE7F266B23F31AE549 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -152,19 +211,51 @@
 				81B12A552952630E95B97E6A /* ContentView.swift in Sources */,
 				F367233B6EE6766ADA060F3C /* DispatchApp.swift in Sources */,
 				A028EA8EFDF0BFDFF55E9F72 /* HiddenVolumeView.swift in Sources */,
-				273B8150F9A8854DC3B10D0A /* VolumeDebugView.swift in Sources */,
-				A1B2C3D4E5F6071829304152 /* NetworkDebugView.swift in Sources */,
+				2D642A03BF4F057BD0B59E96 /* NetworkDebugView.swift in Sources */,
 				694A119D964D032BDE0D7365 /* NetworkManager.swift in Sources */,
+				81F6468102F73F2F21EFEB6A /* SimulatorControlsView.swift in Sources */,
 				436072B45820896FCE331898 /* TerminalLayoutView.swift in Sources */,
 				396D19F627ECC95D70F25DFB /* VolumeButtonManager.swift in Sources */,
-				D1A2B3C4E5F60718293A4B5C /* SimulatorControlsView.swift in Sources */,
+				05382B96E23721CF90F881EF /* VolumeDebugView.swift in Sources */,
 				9A48611D40A855C048D30539 /* WindowLayout.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5F2F8864EABD25E9E2CC121C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8295C88D2543267B793F19B1 /* AudioRecorder.swift in Sources */,
+				DEDBB73BCC5362060616AD34 /* ContentView.swift in Sources */,
+				0D161B8133A53AA547D04DB1 /* DispatchWatchApp.swift in Sources */,
+				8336C4EBD6EA1BB11BFA09F4 /* NetworkManager.swift in Sources */,
+				7F1A64207EE218101A03848D /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
+		0A5E7CAC6B8E381D7241751D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = X6HPD4S92D;
+				INFOPLIST_FILE = "Dispatch Watch App/Info.plist";
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch.watch;
+				PRODUCT_MODULE_NAME = DispatchWatchApp;
+				PRODUCT_NAME = "Dispatch Watch App";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Debug;
+		};
 		351E553F68586C9A93B56FDD /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -175,7 +266,7 @@
 				DEVELOPMENT_TEAM = X6HPD4S92D;
 				INFOPLIST_FILE = Dispatch/Info.plist;
 				INFOPLIST_KEY_UIStatusBarStyle = "";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationLandscapeRight;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationLandscapeLeft;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -246,10 +337,10 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Debug;
 		};
@@ -263,7 +354,7 @@
 				DEVELOPMENT_TEAM = X6HPD4S92D;
 				INFOPLIST_FILE = Dispatch/Info.plist;
 				INFOPLIST_KEY_UIStatusBarStyle = "";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationLandscapeRight;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationLandscapeLeft;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -327,16 +418,45 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		D66E00B1873D0DDC340EBAE7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = X6HPD4S92D;
+				INFOPLIST_FILE = "Dispatch Watch App/Info.plist";
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch.watch;
+				PRODUCT_MODULE_NAME = DispatchWatchApp;
+				PRODUCT_NAME = "Dispatch Watch App";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		0955043A72EAF1F6E5510AC7 /* Build configuration list for PBXNativeTarget "Dispatch Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A5E7CAC6B8E381D7241751D /* Debug */,
+				D66E00B1873D0DDC340EBAE7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		F1FA7F3C7377B58C87EF1A43 /* Build configuration list for PBXNativeTarget "Dispatch" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

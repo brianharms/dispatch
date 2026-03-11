@@ -16,9 +16,16 @@ TRANSCRIBE_BIN = os.path.join(SCRIPT_DIR, "transcribe")
 PORT = 9876
 TARGET_APP = "iTerm2"
 
-# Medium blue highlight for the active window — obvious but not harsh
-# RGB ~30, 60, 120 mapped to 16-bit AppleScript color space
-HIGHLIGHT_COLOR = "{7700, 15400, 30840}"
+# Recording indicator color (hex for escape sequences — no AppleScript focus side-effects)
+RECORDING_HEX = "641414"  # dark red, ~RGB(100, 20, 20)
+
+# focus_tab_color.py palette — used to restore color after recording
+FOCUS_COLORS = {
+    "reset": {"focused": "233367", "unfocused": "14191f"},
+    "stop":  {"focused": "1d3a90", "unfocused": "002f00"},
+}
+FOCUS_ENABLED_FILE = os.path.expanduser("~/.claude/focus_color_enabled")
+FOCUS_TTY_STATE_DIR = os.path.expanduser("~/.claude/tty_states")
 
 state = {
     "current_index": 0,
@@ -31,6 +38,9 @@ state = {
 
 # Streaming dictation state
 current_typed_text = ""
+
+# Recording state — tracks whether we're in a recording session
+_recording_active = False
 
 # Cached status response — updated by background thread, served instantly
 _cached_status = {}
@@ -47,37 +57,44 @@ _applescript_lock = threading.Lock()
 # ---------------------------------------------------------------------------
 
 def refresh_windows():
-    """Get stable window ID/name pairs from iTerm2."""
-    ids_script = f'tell application "{TARGET_APP}" to get id of every window'
-    names_script = f'''
+    """Get stable window ID/name pairs from iTerm2 (visible, non-minimized only)."""
+    script = f'''
     tell application "{TARGET_APP}"
-        set nameList to name of every window
+        set idList to {{}}
+        set nameList to {{}}
+        repeat with w in windows
+            if miniaturized of w is false then
+                set wName to name of w
+                if wName does not contain "Script" then
+                    set end of idList to id of w
+                    set end of nameList to wName
+                end if
+            end if
+        end repeat
+        set AppleScript's text item delimiters to ","
+        set idStr to idList as text
         set AppleScript's text item delimiters to "|||"
-        return nameList as text
+        set nameStr to nameList as text
+        return idStr & ":::" & nameStr
     end tell
     '''
     try:
         with _applescript_lock:
-            ids_result = subprocess.run(
-                ['osascript', '-e', ids_script],
-                capture_output=True, text=True, timeout=5
-            )
-            names_result = subprocess.run(
-                ['osascript', '-e', names_script],
+            result = subprocess.run(
+                ['osascript', '-e', script],
                 capture_output=True, text=True, timeout=5
             )
     except subprocess.TimeoutExpired:
         print("  [error] AppleScript timed out enumerating windows")
         return [], []
 
-    ids_raw = ids_result.stdout.strip()
-    names_raw = names_result.stdout.strip()
-
-    if not ids_raw or not names_raw:
+    raw = result.stdout.strip()
+    if not raw or ":::" not in raw:
         print("  [warn] No iTerm2 windows found (is iTerm2 running?)")
         return [], []
 
-    ids = [int(x.strip()) for x in ids_raw.split(',')]
+    ids_raw, names_raw = raw.split(":::", 1)
+    ids = [int(x.strip()) for x in ids_raw.split(',') if x.strip()]
     names = [n.strip() for n in names_raw.split('|||')]
     return ids, names
 
@@ -159,20 +176,86 @@ def activate_and_highlight(new_index):
     return name or (state["window_names"][new_index] if new_index < len(state["window_names"]) else "?")
 
 
-def set_bg_color(wid, color_str):
-    """Set background color by stable window ID. color_str is 'r,g,b'."""
-    r, g, b = color_str.split(',')
+def get_session_tty(wid):
+    """Get the TTY path for the active session in a window (by window ID)."""
     script = f'''
     tell application "{TARGET_APP}"
         set s to current session of current tab of (first window whose id is {wid})
-        set background color of s to {{{r}, {g}, {b}}}
+        get tty of s
     end tell
     '''
     try:
         with _applescript_lock:
-            subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=5)
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=5
+            )
+        tty = result.stdout.strip()
+        if tty and tty.startswith("/dev/"):
+            return tty
     except subprocess.TimeoutExpired:
         pass
+    return None
+
+
+def set_bg_via_tty(tty_path, hex_color):
+    """Write an iTerm2 escape sequence to set background color on a TTY."""
+    if not tty_path:
+        return False
+    try:
+        seq = f"\033]1337;SetColors=bg={hex_color}\a"
+        with open(tty_path, "w") as f:
+            f.write(seq)
+        return True
+    except Exception as e:
+        print(f"  [color] Failed to write to {tty_path}: {e}")
+        return False
+
+
+def get_restore_color(tty_path):
+    """Determine what color to restore after recording, matching focus_tab_color.py."""
+    if not os.path.exists(FOCUS_ENABLED_FILE):
+        return "14191f"  # neutral dark when focus coloring is off
+
+    # Check TTY state (stop vs reset)
+    tty_state = "reset"
+    if tty_path:
+        try:
+            safe_name = tty_path.replace("/", "_")
+            state_file = os.path.join(FOCUS_TTY_STATE_DIR, safe_name)
+            if os.path.exists(state_file):
+                with open(state_file) as f:
+                    s = f.read().strip()
+                    if s in FOCUS_COLORS:
+                        tty_state = s
+        except Exception:
+            pass
+
+    # The recording window is the focused one
+    return FOCUS_COLORS[tty_state]["focused"]
+
+
+def set_recording_color(on: bool):
+    """Set active window background via escape sequences (no focus side-effects)."""
+    global _recording_active
+    _recording_active = on
+    idx = state["current_index"]
+    if idx < 0 or idx >= len(state["window_ids"]):
+        return
+    wid = state["window_ids"][idx]
+
+    tty = get_session_tty(wid)
+    if not tty:
+        print(f"  [color] Could not get TTY for window {wid}")
+        return
+
+    if on:
+        set_bg_via_tty(tty, RECORDING_HEX)
+        print(f"  [color] Recording ON — {tty} -> {RECORDING_HEX}")
+    else:
+        restore = get_restore_color(tty)
+        set_bg_via_tty(tty, restore)
+        print(f"  [color] Recording OFF — {tty} -> {restore}")
 
 
 def type_text_iterm(text, enter=False):
@@ -209,16 +292,23 @@ def type_text_iterm(text, enter=False):
 
 
 def send_backspaces_iterm(count):
-    """Send N backspace/delete characters to the active iTerm2 session."""
+    """Send N backspace/delete characters to the active iTerm2 session.
+
+    Uses iTerm2's native 'write text' API with DEL characters (ASCII 127)
+    instead of System Events keystrokes — focus-independent, no race conditions.
+    """
     if count <= 0:
         return
-    # Use System Events key code 51 (Delete key) — most reliable for terminal backspace
     script = f'''
-    tell application "{TARGET_APP}" to activate
-    tell application "System Events"
-        repeat {count} times
-            key code 51
-        end repeat
+    tell application "{TARGET_APP}"
+        tell current session of current tab of current window
+            set delChar to ASCII character 127
+            set delStr to ""
+            repeat {count} times
+                set delStr to delStr & delChar
+            end repeat
+            write text delStr newline no
+        end tell
     end tell
     '''
     try:
@@ -228,7 +318,7 @@ def send_backspaces_iterm(count):
                 capture_output=True, text=True, timeout=5
             )
         if result.returncode != 0:
-            print(f"  [warn] send_backspaces via key code 51 failed: {result.stderr.strip()}")
+            print(f"  [warn] send_backspaces failed: {result.stderr.strip()}")
     except subprocess.TimeoutExpired:
         print("  [error] send_backspaces timed out")
 
@@ -239,7 +329,7 @@ def send_escape():
     tell application "{TARGET_APP}"
         tell current session of current tab of current window
             write text (ASCII character 27) newline no
-            delay 0.05
+            delay 0.1
             write text (ASCII character 27) newline no
         end tell
     end tell
@@ -292,6 +382,9 @@ def get_window_layout():
         set output to ""
         set activeWinID to id of current window
         repeat with w in windows
+            if miniaturized of w is true then
+            else if name of w contains "Script" then
+            else
             set wID to id of w
             set wName to name of w
             set wBounds to bounds of w
@@ -315,6 +408,7 @@ def get_window_layout():
             end repeat
 
             set output to output & wID & ":::" & wName & ":::" & bLeft & "," & bTop & "," & bRight & "," & bBottom & ":::" & tabCount & ":::" & activeTabIdx & ":::" & tabNames & "|||"
+            end if
         end repeat
         return output & "ACTIVE:::" & activeWinID
     end tell
@@ -688,10 +782,6 @@ class DispatchHandler(BaseHTTPRequestHandler):
             is_final = body.get("is_final", False)
             previous_length = body.get("previous_length", 0)
 
-            # Reset tracking if this is a new dictation session
-            if previous_length == 0:
-                current_typed_text = ""
-
             # Calculate diff between what we already typed and what we need
             chars_to_delete, chars_to_type = calculate_typing_diff(
                 current_typed_text, text
@@ -728,12 +818,25 @@ class DispatchHandler(BaseHTTPRequestHandler):
             if text or enter:
                 type_text_iterm(text, enter=enter)
                 print(f"  Typed: {repr(text)} (enter={enter})")
+            if enter:
+                current_typed_text = ""
             self.send_json({"ok": True, "typed": text})
 
         elif self.path == "/escape":
             send_escape()
             current_typed_text = ""  # Cancel any in-progress dictation tracking
             print("  Sent double-escape (dictation state reset)")
+            self.send_json({"ok": True})
+
+        elif self.path == "/recording-start":
+            current_typed_text = ""  # Reset dictation tracking for new session
+            set_recording_color(on=True)
+            print("  Recording started — background red, dictation state reset")
+            self.send_json({"ok": True})
+
+        elif self.path == "/recording-stop":
+            set_recording_color(on=False)
+            print("  Recording stopped — background restored")
             self.send_json({"ok": True})
 
         elif self.path == "/refresh":

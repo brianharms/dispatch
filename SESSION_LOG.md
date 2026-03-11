@@ -2,6 +2,67 @@
 
 ---
 
+## Session 6 — 2026-03-11 00:00 — Watch App Consolidation + UX Overhaul
+
+### Goal
+Refactor "Twist" Apple Watch app into the Dispatch project as a second target, rebrand, and fix UX issues.
+
+### Accomplished
+- Consolidated Twist watch app into Dispatch as `Dispatch Watch App` target in `project.yml`
+- Rebranded to "dispatch." — matching iOS app identity
+- Added top settings bar with gear icon (single tap opens settings, keeps recording zone separate)
+- Added full-screen pulsating red glow when recording (replaces small dot)
+- Unified gesture system: single `DragGesture(minimumDistance: 0)` with 300ms swipe deadline — swipe horizontally >1/6 screen within 300ms = cycle, hold still past 300ms = start recording
+- Added orientation setting (landscape/portrait) in settings, stored in `@AppStorage`
+- Redesigned settings: IP split into 4 stacked vertical octet fields, defaults to 192.168.1.80, scrollable layout
+- Built `server/transcribe` binary (was never compiled — root cause of dictation not working)
+- Fixed iCloud xattr codesign issue by building to `/tmp/dispatch-watch-build`
+- Voice dictation confirmed working end-to-end (watch → server → transcribe → terminal)
+- Big 48pt window index number + dot indicators for clear position awareness
+- Removed stale `Dispatch 2.xcodeproj`
+
+### Known Issues / TODO
+- **Watch app needs a new logo/icon** — currently using default
+- **Watch screen design needs work** — user explicitly said it "sucks", on the to-do list
+- Swipe vs hold gesture timing may need further tuning (user said recording was hard to trigger before the 300ms/1/6-screen fix)
+- ATS on watch still uses `NSAllowsLocalNetworking` (iOS needed `NSAllowsArbitraryLoads` — may need same fix)
+- `dictate()` silently discards errors — no feedback if network call fails
+- Dictation takes a noticeable delay (transcription latency)
+
+### Files Changed
+- `project.yml` — added `Dispatch Watch App` watchOS target
+- `Dispatch Watch App/ContentView.swift` — unified DragGesture with 300ms swipe deadline, top settings bar, red pulse overlay, big index display with dot indicators
+- `Dispatch Watch App/SettingsView.swift` — stacked vertical octet IP fields with gutter label, orientation picker, scrollable, octet4 defaults to "80"
+- `Dispatch Watch App/DispatchWatchApp.swift` — renamed entry point from TwistApp
+- `Dispatch Watch App/NetworkManager.swift` — copied from Twist (unchanged)
+- `Dispatch Watch App/AudioRecorder.swift` — copied from Twist (unchanged)
+- `Dispatch Watch App/Info.plist` — copied from Twist (unchanged)
+- `server/transcribe` — compiled from `transcribe.swift`
+- `SESSION_LOG.md` — this file
+
+### Key Decisions
+- Watch target uses Swift 5.0 (avoids Swift 6 strict concurrency issues with `@unchecked Sendable`)
+- Watch NetworkManager stays as `ObservableObject/@Published` (iOS uses `@Observable/@MainActor`)
+- Build output to `/tmp/dispatch-watch-build` to avoid iCloud extended attribute codesign failures
+- Single `DragGesture(minimumDistance: 0)` handles both swipe and hold — 300ms deadline, 1/6 screen width threshold. Fast horizontal swipe = cycle windows, stationary hold = record voice.
+- Used `/hypothesize` to diagnose dictation failure — root cause was missing compiled `transcribe` binary
+
+### Device
+- Apple Watch device ID: `00008310-001374C10E23601E`
+- Bundle ID: `com.ritualindustries.dispatch.watch`
+
+### Next Steps
+1. Design new watch app icon/logo
+2. Redesign watch screen UI — better visual identity and layout
+3. Consider `NSAllowsArbitraryLoads` for watch ATS if networking issues arise
+4. Add error feedback for failed dictation requests
+5. Test swipe gesture tuning on-device
+3. Test dictation end-to-end (transcribe binary now compiled)
+4. Consider `NSAllowsArbitraryLoads` for watch ATS
+5. Add error feedback for failed dictation requests
+
+---
+
 ## Session 5 — 2026-03-10 18:18 — Double-Tap Fix, ATS Fix, Escape & Enter Fixes
 
 ### Goal
