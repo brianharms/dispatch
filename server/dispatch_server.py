@@ -36,6 +36,11 @@ current_typed_text = ""
 _cached_status = {}
 _cache_lock = threading.Lock()
 
+# Serialize ALL AppleScript calls — prevents race conditions between
+# background cache refresh and /cycle endpoint, which cause iTerm2 to
+# return duplicate/missing window IDs during concurrent enumeration
+_applescript_lock = threading.Lock()
+
 
 # ---------------------------------------------------------------------------
 # iTerm2 AppleScript helpers
@@ -52,14 +57,15 @@ def refresh_windows():
     end tell
     '''
     try:
-        ids_result = subprocess.run(
-            ['osascript', '-e', ids_script],
-            capture_output=True, text=True, timeout=5
-        )
-        names_result = subprocess.run(
-            ['osascript', '-e', names_script],
-            capture_output=True, text=True, timeout=5
-        )
+        with _applescript_lock:
+            ids_result = subprocess.run(
+                ['osascript', '-e', ids_script],
+                capture_output=True, text=True, timeout=5
+            )
+            names_result = subprocess.run(
+                ['osascript', '-e', names_script],
+                capture_output=True, text=True, timeout=5
+            )
     except subprocess.TimeoutExpired:
         print("  [error] AppleScript timed out enumerating windows")
         return [], []
@@ -103,10 +109,11 @@ def get_window_name(index):
     wid = state["window_ids"][index]
     script = f'tell application "{TARGET_APP}" to get name of (first window whose id is {wid})'
     try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=5
-        )
+        with _applescript_lock:
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=5
+            )
         name = result.stdout.strip()
         if name:
             state["window_names"][index] = name
@@ -137,10 +144,11 @@ def activate_and_highlight(new_index):
     '''
     name = None
     try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=3
-        )
+        with _applescript_lock:
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=3
+            )
         name = result.stdout.strip() or None
     except subprocess.TimeoutExpired:
         print("  [error] activate_and_highlight timed out")
@@ -161,7 +169,8 @@ def set_bg_color(wid, color_str):
     end tell
     '''
     try:
-        subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=5)
+        with _applescript_lock:
+            subprocess.run(['osascript', '-e', script], capture_output=True, text=True, timeout=5)
     except subprocess.TimeoutExpired:
         pass
 
@@ -188,10 +197,11 @@ def type_text_iterm(text, enter=False):
         end tell
         '''
     try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=5
-        )
+        with _applescript_lock:
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=5
+            )
         if result.returncode != 0:
             print(f"  [error] type_text failed: {result.stderr.strip()}")
     except subprocess.TimeoutExpired:
@@ -212,10 +222,11 @@ def send_backspaces_iterm(count):
     end tell
     '''
     try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=5
-        )
+        with _applescript_lock:
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=5
+            )
         if result.returncode != 0:
             print(f"  [warn] send_backspaces via key code 51 failed: {result.stderr.strip()}")
     except subprocess.TimeoutExpired:
@@ -228,15 +239,17 @@ def send_escape():
     tell application "{TARGET_APP}"
         tell current session of current tab of current window
             write text (ASCII character 27) newline no
+            delay 0.05
             write text (ASCII character 27) newline no
         end tell
     end tell
     '''
     try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=5
-        )
+        with _applescript_lock:
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=5
+            )
         if result.returncode != 0:
             print(f"  [error] send_escape failed: {result.stderr.strip()}")
     except subprocess.TimeoutExpired:
@@ -251,10 +264,11 @@ def get_screen_size():
     end tell
     '''
     try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=5
-        )
+        with _applescript_lock:
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=5
+            )
         output = result.stdout.strip()
         if output:
             # Returns "0, 0, width, height"
@@ -306,10 +320,11 @@ def get_window_layout():
     end tell
     '''
     try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True, text=True, timeout=5
-        )
+        with _applescript_lock:
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=5
+            )
         output = result.stdout.strip()
     except subprocess.TimeoutExpired:
         print("  [error] get_window_layout timed out")
@@ -369,6 +384,82 @@ def get_window_layout():
             print(f"  [warn] Failed to parse window entry: {entry} ({e})")
             continue
 
+    # Validate: reject layouts with duplicate window IDs (AppleScript race artifact)
+    seen_ids = set()
+    has_dupes = False
+    for w in windows:
+        if w["id"] in seen_ids:
+            has_dupes = True
+            break
+        seen_ids.add(w["id"])
+
+    if has_dupes:
+        print(f"  [warn] Duplicate window IDs in layout — retrying once")
+        # Retry immediately (the lock ensures no concurrent AppleScript)
+        try:
+            with _applescript_lock:
+                result = subprocess.run(
+                    ['osascript', '-e', script],
+                    capture_output=True, text=True, timeout=5
+                )
+            retry_output = result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            print("  [error] get_window_layout retry timed out")
+            return windows, active_index  # Return the flawed layout rather than nothing
+
+        if retry_output:
+            # Re-parse the retry result
+            retry_active_id = -1
+            if "ACTIVE:::" in retry_output:
+                main_part, active_part = retry_output.rsplit("ACTIVE:::", 1)
+                retry_output = main_part
+                try:
+                    retry_active_id = int(active_part.strip())
+                except (ValueError, IndexError):
+                    pass
+
+            retry_windows = []
+            retry_active_index = 0
+            entries = [e.strip() for e in retry_output.split("|||") if e.strip()]
+            for i, entry in enumerate(entries):
+                fields = entry.split(":::")
+                if len(fields) < 6:
+                    continue
+                try:
+                    wid = fields[0].strip()
+                    wname = fields[1].strip()
+                    bounds_parts = [int(x.strip()) for x in fields[2].split(',')]
+                    tab_count = int(fields[3].strip())
+                    active_tab = int(fields[4].strip())
+                    tab_names_raw = fields[5].strip()
+                    left, top, right, bottom = bounds_parts
+                    win_data = {
+                        "id": wid,
+                        "name": wname,
+                        "x": left,
+                        "y": top,
+                        "width": right - left,
+                        "height": bottom - top,
+                    }
+                    if tab_count > 1:
+                        tab_list = [t.strip() for t in tab_names_raw.split(";;;")]
+                        win_data["tabs"] = tab_list
+                        win_data["tab_count"] = tab_count
+                        win_data["active_tab"] = active_tab - 1
+                    if str(retry_active_id) == wid:
+                        retry_active_index = i
+                    retry_windows.append(win_data)
+                except (ValueError, IndexError):
+                    continue
+
+            # Check retry for dupes too
+            retry_ids = [w["id"] for w in retry_windows]
+            if len(retry_ids) == len(set(retry_ids)):
+                print(f"  [info] Retry succeeded — clean layout with {len(retry_windows)} windows")
+                return retry_windows, retry_active_index
+            else:
+                print(f"  [warn] Retry also had duplicate IDs — returning original")
+
     return windows, active_index
 
 
@@ -424,6 +515,17 @@ def build_status():
                     idx = i
                     name = get_window_name(idx)
                     break
+
+    # Filter layout to only include locked windows — prevents transient/ephemeral
+    # windows (preferences, recolor flashes, etc.) from affecting the phone display
+    locked_id_set = {str(wid) for wid in state["window_ids"]}
+    if locked_id_set:
+        filtered = [w for w in layout_windows if str(w["id"]) in locked_id_set]
+        if len(filtered) == len(locked_id_set):
+            layout_windows = filtered
+        else:
+            # Some locked windows missing from layout — keep full list as fallback
+            print(f"  [warn] Layout missing locked windows: got {len(filtered)}/{len(locked_id_set)}")
 
     # Sort layout windows spatially: left-to-right, top-to-bottom (reading order)
     if layout_windows:
@@ -623,7 +725,7 @@ class DispatchHandler(BaseHTTPRequestHandler):
         elif self.path == "/type":
             text = body.get("text", "")
             enter = body.get("enter", False)
-            if text:
+            if text or enter:
                 type_text_iterm(text, enter=enter)
                 print(f"  Typed: {repr(text)} (enter={enter})")
             self.send_json({"ok": True, "typed": text})

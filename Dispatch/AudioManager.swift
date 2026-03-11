@@ -32,6 +32,9 @@ final class AudioManager {
     /// Tracks what we last sent to the server so the receiver can compute diffs.
     private var lastSentText: String = ""
 
+    /// Guards against duplicate final sends (recognition task callback vs stopRecording fallback race)
+    private var hasFiredFinal: Bool = false
+
     // MARK: - Permissions
 
     func requestPermissions() {
@@ -67,23 +70,24 @@ final class AudioManager {
     // MARK: - Recording
 
     func startRecording() {
-        guard !isRecording else { return }
+        // Guard against re-entrant start — tear down any prior session first
+        if isRecording {
+            stopRecording()
+        }
+        cleanUp()
 
         // Clear previous state
         error = nil
         transcribedText = ""
         partialText = ""
         lastSentText = ""
+        hasFiredFinal = false
 
         // Verify speech recognizer is available
         guard let speechRecognizer, speechRecognizer.isAvailable else {
             error = "Speech recognizer is not available."
             return
         }
-
-        // Cancel any in-progress task
-        recognitionTask?.cancel()
-        recognitionTask = nil
 
         // Create recognition request
         let request = SFSpeechAudioBufferRecognitionRequest()
@@ -107,7 +111,10 @@ final class AudioManager {
                     if isFinal {
                         self.transcribedText = text
                         self.partialText = ""
-                        self.onFinalResult?(text)
+                        if !self.hasFiredFinal {
+                            self.hasFiredFinal = true
+                            self.onFinalResult?(text)
+                        }
                         self.lastSentText = ""
                         self.cleanUp()
                     } else {
@@ -128,6 +135,20 @@ final class AudioManager {
                     self.cleanUp()
                 }
             }
+        }
+
+        // Reconfigure audio session so AVAudioEngine doesn't clobber the existing
+        // .playAndRecord setup that VolumeButtonManager relies on for outputVolume KVO.
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(
+                .playAndRecord,
+                mode: .default,
+                options: [.defaultToSpeaker, .mixWithOthers, .allowBluetooth]
+            )
+            try session.setActive(true)
+        } catch {
+            print("[AudioManager] Audio session config error: \(error)")
         }
 
         // Set up audio engine tap — guard against simulator/missing audio input
@@ -167,9 +188,9 @@ final class AudioManager {
 
         // If we got partial text but recognition hasn't finalized yet,
         // promote partials to transcribed text as a fallback.
-        if !partialText.isEmpty && transcribedText.isEmpty {
+        if !partialText.isEmpty && transcribedText.isEmpty && !hasFiredFinal {
             transcribedText = partialText
-            // Fire final with whatever we have
+            hasFiredFinal = true
             onFinalResult?(partialText)
             partialText = ""
         }

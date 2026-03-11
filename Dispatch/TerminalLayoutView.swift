@@ -6,92 +6,87 @@ struct TerminalLayoutView: View {
     let activeIndex: Int
     let isDictating: Bool
 
-    @State private var recordingPulse: CGFloat = 0.05
-
     var body: some View {
-        GeometryReader { geo in
-            let availableSize = geo.size
-            let padding: CGFloat = 40
+        // TimelineView drives the pulse — stops instantly when paused, no lingering animations
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isDictating)) { timeline in
+            let pulse: CGFloat = isDictating
+                ? pulseOpacity(from: timeline.date)
+                : 0
 
-            // Compute bounding box from actual window positions
-            let bounds = computeBounds()
-            let contentSize = CGSize(
-                width: max(bounds.width, 1),
-                height: max(bounds.height, 1)
-            )
+            GeometryReader { geo in
+                let availableSize = geo.size
+                let padding: CGFloat = 40
 
-            let drawArea = CGSize(
-                width: availableSize.width - padding * 2,
-                height: availableSize.height - padding * 2
-            )
+                let bounds = computeBounds()
+                let contentSize = CGSize(
+                    width: max(bounds.width, 1),
+                    height: max(bounds.height, 1)
+                )
 
-            let scaleX = drawArea.width / contentSize.width
-            let scaleY = drawArea.height / contentSize.height
-            let scale = min(scaleX, scaleY)
+                let drawArea = CGSize(
+                    width: availableSize.width - padding * 2,
+                    height: availableSize.height - padding * 2
+                )
 
-            let scaledWidth = contentSize.width * scale
-            let scaledHeight = contentSize.height * scale
+                let scaleX = drawArea.width / contentSize.width
+                let scaleY = drawArea.height / contentSize.height
+                let scale = min(scaleX, scaleY)
 
-            let offsetX = (availableSize.width - scaledWidth) / 2
-            let offsetY = (availableSize.height - scaledHeight) / 2
+                let scaledWidth = contentSize.width * scale
+                let scaledHeight = contentSize.height * scale
 
-            ZStack(alignment: .topLeading) {
-                Color.clear
+                let offsetX = (availableSize.width - scaledWidth) / 2
+                let offsetY = (availableSize.height - scaledHeight) / 2
 
-                // Sort so active window renders last (visually on top in ZStack)
-                let sortedWindows = windowLayouts.enumerated().sorted { a, b in
-                    if a.offset == activeIndex { return false }
-                    if b.offset == activeIndex { return true }
-                    return a.offset < b.offset
-                }
+                ZStack(alignment: .topLeading) {
+                    Color.clear
 
-                ForEach(sortedWindows, id: \.element.id) { index, window in
-                    // Translate window position relative to bounding box origin
-                    let rectX = (window.x - bounds.minX) * scale + offsetX
-                    let rectY = (window.y - bounds.minY) * scale + offsetY
-                    let rectW = window.width * scale
-                    let rectH = window.height * scale
-
-                    let isActive = index == activeIndex
-
-                    ZStack(alignment: .topLeading) {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(windowFill(isActive: isActive))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(windowStroke(isActive: isActive), lineWidth: isActive ? 2 : 1)
-                            )
-
-                        // Traffic light dots
-                        HStack(spacing: 4) {
-                            Circle().frame(width: 6, height: 6)
-                            Circle().frame(width: 6, height: 6)
-                            Circle().frame(width: 6, height: 6)
-                        }
-                        .foregroundColor(isActive && isDictating ? .red : isActive ? .black : .white.opacity(0.3))
-                        .padding(.top, 6)
-                        .padding(.leading, 8)
-
+                    let sortedWindows = windowLayouts.enumerated().sorted { a, b in
+                        if a.offset == activeIndex { return false }
+                        if b.offset == activeIndex { return true }
+                        return a.offset < b.offset
                     }
-                    .frame(width: rectW, height: rectH)
-                    .position(x: rectX + rectW / 2, y: rectY + rectH / 2)
-                }
-            }
-        }
-        .onChange(of: isDictating) { _, recording in
-            if recording {
-                withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
-                    recordingPulse = 0.4
-                }
-            } else {
-                withAnimation(nil) {
-                    recordingPulse = 0.05
+
+                    ForEach(sortedWindows, id: \.element.id) { index, window in
+                        let rectX = (window.x - bounds.minX) * scale + offsetX
+                        let rectY = (window.y - bounds.minY) * scale + offsetY
+                        let rectW = window.width * scale
+                        let rectH = window.height * scale
+
+                        let isActive = index == activeIndex
+
+                        ZStack(alignment: .topLeading) {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(windowFill(isActive: isActive, pulse: pulse))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .stroke(windowStroke(isActive: isActive), lineWidth: isActive ? 2 : 1)
+                                )
+
+                            HStack(spacing: 4) {
+                                Circle().frame(width: 6, height: 6)
+                                Circle().frame(width: 6, height: 6)
+                                Circle().frame(width: 6, height: 6)
+                            }
+                            .foregroundColor(isActive && isDictating ? .red : isActive ? .black : .white.opacity(0.3))
+                            .padding(.top, 6)
+                            .padding(.leading, 8)
+                        }
+                        .frame(width: rectW, height: rectH)
+                        .position(x: rectX + rectW / 2, y: rectY + rectH / 2)
+                    }
                 }
             }
         }
     }
 
-    /// Compute bounding box enclosing all windows.
+    /// Compute pulse opacity from current time using sin wave. 0.05 … 0.4 range.
+    private func pulseOpacity(from date: Date) -> CGFloat {
+        let seconds = date.timeIntervalSinceReferenceDate
+        let wave = sin(seconds * .pi) // ~0.5 Hz cycle (1s period)
+        return 0.05 + (wave + 1) / 2 * 0.35 // maps -1…1 to 0.05…0.4
+    }
+
     private func computeBounds() -> CGRect {
         guard !windowLayouts.isEmpty else {
             return CGRect(origin: .zero, size: screenSize)
@@ -109,7 +104,6 @@ struct TerminalLayoutView: View {
             maxY = max(maxY, w.y + w.height)
         }
 
-        // Add a small margin around the bounding box
         let margin: CGFloat = 20
         return CGRect(
             x: minX - margin,
@@ -119,13 +113,13 @@ struct TerminalLayoutView: View {
         )
     }
 
-    private func windowFill(isActive: Bool) -> Color {
+    private func windowFill(isActive: Bool, pulse: CGFloat) -> Color {
         if isActive && isDictating {
-            return Color.red.opacity(recordingPulse)
+            return Color.red.opacity(pulse)
         } else if isActive {
             return .white
         } else {
-            return .black
+            return Color.white.opacity(0.08)
         }
     }
 
@@ -135,7 +129,7 @@ struct TerminalLayoutView: View {
         } else if isActive {
             return .white
         } else {
-            return .white.opacity(0.3)
+            return .white.opacity(0.5)
         }
     }
 }

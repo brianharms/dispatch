@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct ButtonIndicatorView: View {
-    let lastAction: DispatchAction?
-    let actionID: Int
+    let indicatorAction: DispatchAction?
+    let indicatorActionID: Int
     let isDictating: Bool
 
     // Animation states
@@ -19,7 +19,7 @@ struct ButtonIndicatorView: View {
     private let volDownX: CGFloat = 0.67
     private let volUpX: CGFloat = 0.75
     private let buttonY: CGFloat = 12
-    private let showGrid = true
+    private let showGrid = false
 
     var body: some View {
         GeometryReader { geo in
@@ -48,7 +48,7 @@ struct ButtonIndicatorView: View {
                     .font(.system(size: volDownFontSize, weight: .bold, design: .monospaced))
                     .foregroundColor(.white)
                     .opacity(volDownOpacity)
-                    .position(x: geo.size.width * volDownX - 8 + volDownOffsetX, y: buttonY)
+                    .position(x: geo.size.width * volDownX - 58 + volDownOffsetX, y: buttonY)
 
                 // Vol Up indicator — ">"
                 if isDictating {
@@ -56,13 +56,13 @@ struct ButtonIndicatorView: View {
                         .fill(Color.red)
                         .frame(width: 10, height: 10)
                         .scaleEffect(pulseScale)
-                        .position(x: geo.size.width * volUpX + 15, y: buttonY)
+                        .position(x: geo.size.width * volUpX - 35, y: buttonY)
                 } else {
                     Text(">")
                         .font(.system(size: 15, weight: .bold, design: .monospaced))
                         .foregroundColor(.white)
                         .opacity(volUpOpacity)
-                        .position(x: geo.size.width * volUpX + 14, y: buttonY)
+                        .position(x: geo.size.width * volUpX - 36, y: buttonY)
                 }
             }
         }
@@ -75,8 +75,8 @@ struct ButtonIndicatorView: View {
                 pulseScale = 1.0
             }
         }
-        .onChange(of: actionID) { _, _ in
-            guard let action = lastAction else { return }
+        .onChange(of: indicatorActionID) { _, _ in
+            guard let action = indicatorAction else { return }
             actionCounter += 1
             handleAction(action)
         }

@@ -2,6 +2,51 @@
 
 ---
 
+## Session 5 — 2026-03-10 18:18 — Double-Tap Fix, ATS Fix, Escape & Enter Fixes
+
+### Goal
+Fix multiple real-device bugs: vol-down double-tap not registering as escape, network connectivity issues, dictation Enter not sending, and double-escape only sending one escape.
+
+### Accomplished
+- **Double-tap escape detection fixed**: Added separate `simpleDownDebounceMs = 120` (was reusing `simpleUpDebounceMs = 250` which ate the second press). KVO duplicates arrive within ~80ms; human double-taps at ~200ms+. 120ms sits between.
+- **ATS fix for raw IP HTTP**: Changed `NSAllowsLocalNetworking` to `NSAllowsArbitraryLoads` in Info.plist — `NSAllowsLocalNetworking` doesn't cover raw IP addresses like `http://192.168.1.78:9876`
+- **Enter after dictation fixed**: Server `/type` endpoint had `if text:` which is falsy for empty string — changed to `if text or enter:` so `sendEnter()` (which sends `{"text": "", "enter": true}`) actually fires
+- **Double-escape improved**: `send_escape()` now uses `delay 0.05` between the two `write text (ASCII character 27)` calls so terminal TUI registers them as two distinct Escape keypresses
+- Built and deployed builds 9, 10, 11 to device
+
+### In Progress / Incomplete
+- Double-escape still intermittently unreliable — user reported one instance where first attempt didn't register (second attempt worked). May need longer delay or different approach
+- Network connectivity intermittent — TCP handshakes between phone and Mac sometimes fail (`SYN_RCVD` stuck connections). Likely router AP isolation or WiFi band mismatch. Not a code issue.
+- Plan file (`cozy-knitting-hollerith.md`) items still open: triple dictation send fix (`hasFiredFinal` guard), escape indicator fix, volume drift fix
+
+### Key Decisions
+- Separate debounce constants for UP (250ms) vs DOWN (120ms) — different gesture requirements
+- `NSAllowsArbitraryLoads` is fine for a dev tool that only talks to local server
+- Reverted from System Events `key code 53` back to iTerm2 `write text` for escape — `key code 53` requires `activate` which steals focus and has race conditions. `write text` targets the correct session directly.
+- Used `/hypothesize` skill extensively — 3 parallel agents per bug investigation
+
+### Files Changed
+- `Dispatch/VolumeButtonManager.swift` — added `simpleDownDebounceMs = 120`, used it for vol-down debounce
+- `Dispatch/Info.plist` — `NSAllowsArbitraryLoads` instead of `NSAllowsLocalNetworking`, version bumped to 11
+- `server/dispatch_server.py` — `/type` handler `if text or enter:`, `send_escape()` with 50ms delay between ESC chars
+
+### Known Issues
+- Double-escape intermittently unreliable (may need delay tuning >50ms)
+- Network path between iPhone and Mac intermittent (router/WiFi issue, not code)
+- Previous session's RESET-BOUNCE and acceptance threshold fixes still in place (working well)
+
+### Running Services
+- dispatch_server.py running (PID 5198) on port 9876, logs at `/tmp/dispatch_server.log`
+- Build 11 installed on device (00008150-00163C283A05401C)
+
+### Next Steps
+1. Tune escape delay (try 75-100ms if 50ms still unreliable)
+2. Investigate network intermittency — check router AP isolation, Private WiFi Address
+3. Address plan file items: `hasFiredFinal` guard in AudioManager, escape indicator in holdingDown transition, volume drift fix
+4. Test dictation end-to-end (text streaming + Enter commit)
+
+---
+
 ## Session 3 — 2026-03-08 18:15 — Wiring, Rotation Fix, Real Terminal Layout
 
 ### Goal

@@ -15,18 +15,66 @@ final class NetworkManager {
     var totalWindows: Int = 0
     var activeWindowName: String = ""
 
+    // Debug logging (visible in app)
+    private(set) var debugLogEntries: [String] = []
+    private let maxLogEntries = 30
+
+    private func log(_ msg: String) {
+        NSLog("[NET] %@", msg)
+        let timestamp = String(format: "%.3f", CFAbsoluteTimeGetCurrent().truncatingRemainder(dividingBy: 1000))
+        debugLogEntries.append("[\(timestamp)] \(msg)")
+        if debugLogEntries.count > maxLogEntries {
+            debugLogEntries.removeFirst(debugLogEntries.count - maxLogEntries)
+        }
+    }
+
     // MARK: - Configuration
 
     #if targetEnvironment(simulator)
     private var serverURL: String = "http://localhost:9876"
     #else
-    private var serverURL: String = ""
+    private var serverURL: String = "http://192.168.1.78:9876"
     #endif
     private var pollTimer: Timer?
+    /// Number of consecutive poll failures. `isConnected` is only set to false
+    /// after `disconnectThreshold` consecutive failures, preventing a single
+    /// dropped poll from flashing terminals off-screen.
+    private var consecutivePollFailures: Int = 0
+    private let disconnectThreshold: Int = 3
+    /// Number of consecutive polls where layout had fewer windows than current.
+    /// Only accept a shrunk layout after this exceeds `shrinkThreshold`,
+    /// preventing transient AppleScript hiccups from flashing windows off-screen.
+    private var consecutiveShrinkPolls: Int = 0
+    private let shrinkThreshold: Int = 2
+    /// Number of consecutive polls where window IDs changed.
+    /// Only accept new IDs after `idChangeThreshold` consecutive confirmations.
+    private var consecutiveIDChangePolls: Int = 0
+    private let idChangeThreshold: Int = 2
+    private var pendingIDChangeLayout: [WindowLayout]?
     /// When set, polls skip activeIndex updates until the server confirms the expected window.
     /// Cleared when the poll returns a matching active_window_id, on error, or after a 5s timeout.
     private var expectedActiveWindowID: String?
     private var expectedActiveWindowTimer: DispatchWorkItem?
+
+    /// Extract host:port from serverURL for display/editing
+    var currentHost: String {
+        guard let url = URL(string: serverURL) else { return "" }
+        let host = url.host() ?? ""
+        let port = url.port ?? 9876
+        return port == 9876 ? host : "\(host):\(port)"
+    }
+
+    // MARK: - Manual Connection
+
+    func connectManually(ip: String) {
+        let trimmed = ip.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        let host = trimmed.contains(":") ? trimmed : "\(trimmed):9876"
+        serverURL = "http://\(host)"
+        print("[Manual] Connecting to \(serverURL)")
+        stopDiscovery()
+        startPolling()
+    }
 
     // MARK: - Bonjour Discovery
 
@@ -38,6 +86,11 @@ final class NetworkManager {
         startPolling()
         return
         #else
+        // If we have a hardcoded server URL, skip Bonjour and start polling
+        if !serverURL.isEmpty {
+            startPolling()
+            return
+        }
         let params = NWParameters()
         params.includePeerToPeer = true
         let browser = NWBrowser(for: .bonjour(type: "_dispatch._tcp", domain: nil), using: params)
@@ -147,13 +200,19 @@ final class NetworkManager {
                 let (data, response) = try await URLSession.shared.data(from: url)
                 guard let httpResponse = response as? HTTPURLResponse,
                       httpResponse.statusCode == 200 else {
-                    isConnected = false
+                    consecutivePollFailures += 1
+                    if consecutivePollFailures >= disconnectThreshold {
+                        isConnected = false
+                    }
                     return
                 }
+
+                consecutivePollFailures = 0
 
                 if let expected = expectedActiveWindowID {
                     let pollID = peekActiveWindowID(data)
                     if pollID == expected {
+                        log("POLL confirmed guard=\(expected)")
                         clearExpectedGuard()
                         parseStatusResponse(data, updateActiveIndex: true)
                     } else {
@@ -164,7 +223,10 @@ final class NetworkManager {
                 }
                 isConnected = true
             } catch {
-                isConnected = false
+                consecutivePollFailures += 1
+                if consecutivePollFailures >= disconnectThreshold {
+                    isConnected = false
+                }
             }
         }
     }
@@ -180,6 +242,7 @@ final class NetworkManager {
 
         let timeout = DispatchWorkItem { [weak self] in
             Task { @MainActor in
+                self?.log("GUARD TIMEOUT — reverting to server state")
                 self?.clearExpectedGuard()
             }
         }
@@ -214,8 +277,57 @@ final class NetworkManager {
                 screenSize = CGSize(width: screen.width, height: screen.height)
             }
             if let layout = status.layout {
-                windowLayouts = layout
-                totalWindows = layout.count
+                let knownIDs = Set(windowLayouts.map { $0.id })
+                let incomingIDs = Set(layout.map { $0.id })
+                let idsChanged = !knownIDs.isEmpty && incomingIDs != knownIDs
+
+                if idsChanged {
+                    // IDs changed — debounce to filter transient AppleScript glitches
+                    // but allow real changes (new/closed windows) through after confirmation
+                    if layout == pendingIDChangeLayout {
+                        consecutiveIDChangePolls += 1
+                    } else {
+                        consecutiveIDChangePolls = 1
+                        pendingIDChangeLayout = layout
+                    }
+                    if consecutiveIDChangePolls >= idChangeThreshold {
+                        log("LAYOUT IDS confirmed after \(idChangeThreshold) polls")
+                        consecutiveIDChangePolls = 0
+                        pendingIDChangeLayout = nil
+                        consecutiveShrinkPolls = 0
+                        windowLayouts = layout
+                        totalWindows = layout.count
+                    } else {
+                        let summary = layout.map { "\($0.id.prefix(8)):\(Int($0.width))x\(Int($0.height))" }.joined(separator: " ")
+                        log("LAYOUT IDS holding \(consecutiveIDChangePolls)/\(idChangeThreshold): [\(summary)]")
+                    }
+                } else if layout.count < windowLayouts.count {
+                    // Fewer windows — debounce before accepting
+                    consecutiveIDChangePolls = 0
+                    pendingIDChangeLayout = nil
+                    consecutiveShrinkPolls += 1
+                    if consecutiveShrinkPolls < shrinkThreshold {
+                        log("LAYOUT SHRINK \(windowLayouts.count)→\(layout.count) poll \(consecutiveShrinkPolls)/\(shrinkThreshold) — holding")
+                    } else {
+                        log("LAYOUT SHRINK confirmed after \(shrinkThreshold) polls")
+                        consecutiveShrinkPolls = 0
+                        windowLayouts = layout
+                        totalWindows = layout.count
+                    }
+                } else if layoutSignificantlyChanged(from: windowLayouts, to: layout) {
+                    // Real layout change (>5px movement/resize) — accept immediately
+                    consecutiveIDChangePolls = 0
+                    pendingIDChangeLayout = nil
+                    consecutiveShrinkPolls = 0
+                    windowLayouts = layout
+                    totalWindows = layout.count
+                } else {
+                    // Minor sub-pixel jitter — keep existing layout, just update count
+                    consecutiveIDChangePolls = 0
+                    pendingIDChangeLayout = nil
+                    consecutiveShrinkPolls = 0
+                    totalWindows = layout.count
+                }
 
                 if updateActiveIndex,
                    let activeID = status.active_window_id,
@@ -231,6 +343,19 @@ final class NetworkManager {
         }
     }
 
+    /// Returns true if layout changed by more than a trivial amount (>5px in any dimension).
+    /// Filters out sub-pixel jitter from AppleScript during window transitions.
+    private func layoutSignificantlyChanged(from old: [WindowLayout], to new: [WindowLayout]) -> Bool {
+        guard old.count == new.count else { return true }
+        let threshold: CGFloat = 5
+        for (o, n) in zip(old, new) {
+            if o.id != n.id { return true }
+            if abs(o.x - n.x) > threshold || abs(o.y - n.y) > threshold { return true }
+            if abs(o.width - n.width) > threshold || abs(o.height - n.height) > threshold { return true }
+        }
+        return false
+    }
+
     // MARK: - Actions
 
     func cycleNext() {
@@ -238,6 +363,7 @@ final class NetworkManager {
             let newIndex = (activeIndex + 1) % windowLayouts.count
             activeIndex = newIndex
             setExpectedGuard(windowLayouts[newIndex].id)
+            log("cycleNext → [\(newIndex)] guard=\(windowLayouts[newIndex].id)")
         }
         postJSONWithStatus(endpoint: "/cycle", body: ["direction": "next"])
     }
@@ -247,6 +373,7 @@ final class NetworkManager {
             let newIndex = (activeIndex - 1 + windowLayouts.count) % windowLayouts.count
             activeIndex = newIndex
             setExpectedGuard(windowLayouts[newIndex].id)
+            log("cyclePrev → [\(newIndex)] guard=\(windowLayouts[newIndex].id)")
         }
         postJSONWithStatus(endpoint: "/cycle", body: ["direction": "prev"])
     }
@@ -291,13 +418,16 @@ final class NetworkManager {
                 if let httpResponse = response as? HTTPURLResponse,
                    httpResponse.statusCode == 200
                 {
+                    let bodyStr = String(data: data, encoding: .utf8) ?? "?"
+                    log("\(endpoint) OK: \(bodyStr.prefix(120))")
                     parseStatusResponse(data, updateActiveIndex: false)
                 } else {
-                    print("[NetworkManager] \(endpoint) returned non-200")
+                    let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    log("\(endpoint) HTTP \(code)")
                     clearExpectedGuard()
                 }
             } catch {
-                print("[NetworkManager] \(endpoint) failed: \(error)")
+                log("\(endpoint) FAILED: \(error.localizedDescription)")
                 clearExpectedGuard()
             }
         }
