@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		04A1B2C3D4E5F6A7B8C9D0E1 /* BounceDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F2 /* BounceDebugView.swift */; };
 		05382B96E23721CF90F881EF /* VolumeDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDCB96208506E9F618B1488B /* VolumeDebugView.swift */; };
 		0D161B8133A53AA547D04DB1 /* DispatchWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7788C48376C094A5155389 /* DispatchWatchApp.swift */; };
 		2B4852DC334DC22D0B9D200E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9BC98ACECF7520E54CFC41D3 /* Assets.xcassets */; };
@@ -31,6 +32,7 @@
 /* Begin PBXFileReference section */
 		0106299FCDD4BFCF2D2836E9 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		1A85B85627C8BE406EB8DF1C /* Dispatch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Dispatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* BounceDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BounceDebugView.swift; sourceTree = "<group>"; };
 		2A73AF55B335600CA2334960 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
 		3D19E5F46D38C4D533B8D744 /* NetworkDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDebugView.swift; sourceTree = "<group>"; };
 		570F45CF394BC3E25EA6DF2D /* WindowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowLayout.swift; sourceTree = "<group>"; };
@@ -67,6 +69,7 @@
 			children = (
 				F2A7FA193517EE142FAD018C /* Assets.xcassets */,
 				8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* BounceDebugView.swift */,
 				595AE09962CE4541CE91D84C /* ButtonIndicatorView.swift */,
 				B511BD345F5EABC2DA150C31 /* ContentView.swift */,
 				A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */,
@@ -207,6 +210,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B296AC3C38E94FE8EB1367B3 /* AudioManager.swift in Sources */,
+				04A1B2C3D4E5F6A7B8C9D0E1 /* BounceDebugView.swift in Sources */,
 				C254C06724D4559E5DB62F73 /* ButtonIndicatorView.swift in Sources */,
 				81B12A552952630E95B97E6A /* ContentView.swift in Sources */,
 				F367233B6EE6766ADA060F3C /* DispatchApp.swift in Sources */,
@@ -245,7 +249,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = X6HPD4S92D;
 				INFOPLIST_FILE = "Dispatch Watch App/Info.plist";
-				MARKETING_VERSION = 0.1;
+				MARKETING_VERSION = 0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch.watch;
 				PRODUCT_MODULE_NAME = DispatchWatchApp;
 				PRODUCT_NAME = "Dispatch Watch App";
@@ -271,7 +275,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1;
+				MARKETING_VERSION = 0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch;
 				PRODUCT_MODULE_NAME = DispatchApp;
 				PRODUCT_NAME = Dispatch;
@@ -359,7 +363,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1;
+				MARKETING_VERSION = 0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch;
 				PRODUCT_MODULE_NAME = DispatchApp;
 				PRODUCT_NAME = Dispatch;
@@ -434,7 +438,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = X6HPD4S92D;
 				INFOPLIST_FILE = "Dispatch Watch App/Info.plist";
-				MARKETING_VERSION = 0.1;
+				MARKETING_VERSION = 0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch.watch;
 				PRODUCT_MODULE_NAME = DispatchWatchApp;
 				PRODUCT_NAME = "Dispatch Watch App";

@@ -55,8 +55,10 @@ struct HiddenVolumeView: UIViewRepresentable {
             // Add directly to window — NOT through SwiftUI's layout
             window.addSubview(volumeView)
 
+            // Force layout so UIKit creates the internal UISlider subview immediately
+            volumeView.layoutIfNeeded()
+
             // Hand the volume view reference to the manager
-            // The manager uses it for HUD suppression; volume reset uses MPMusicPlayerController
             manager.setHiddenVolumeView(volumeView)
         }
 

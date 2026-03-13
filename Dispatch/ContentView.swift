@@ -6,7 +6,8 @@ struct ContentView: View {
     @State private var audioManager = AudioManager()
     @State private var showSettings = false
     @State private var settingsIP = ""
-    @State private var showDebug = true
+    @State private var showDebug = false
+    @State private var bluetoothMic = false
     @FocusState private var ipFieldFocused: Bool
 
     var body: some View {
@@ -45,6 +46,11 @@ struct ContentView: View {
                     .allowsHitTesting(false)
             }
 
+            if networkManager.debugBounceLog {
+                BounceDebugView(networkManager: networkManager)
+                    .allowsHitTesting(false)
+            }
+
             // Bottom bar: branding + connection status
             VStack {
                 Spacer()
@@ -70,7 +76,8 @@ struct ContentView: View {
         }
         .statusBarHidden(true)
         .onAppear {
-            showDebug = UserDefaults.standard.object(forKey: "showDebug") as? Bool ?? true
+            showDebug = UserDefaults.standard.object(forKey: "showDebug") as? Bool ?? false
+            bluetoothMic = UserDefaults.standard.bool(forKey: "bluetoothMic")
             volumeManager.setup()
             networkManager.startDiscovery()
             audioManager.requestPermissions()
@@ -92,82 +99,122 @@ struct ContentView: View {
     private var settingsOverlay: some View {
         VStack {
             Spacer()
-            VStack(alignment: .leading, spacing: 12) {
-                // Header
-                HStack {
-                    Text("settings")
-                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white)
-                    Spacer()
-                    Button("done") { showSettings = false }
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.5))
-                }
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 10) {
+                    // Header
+                    HStack {
+                        Text("settings")
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white)
+                        Spacer()
+                        Button("done") { showSettings = false }
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
 
-                // Mode
-                HStack {
-                    Text("mode")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.5))
-                    Spacer()
-                    ForEach(InteractionMode.allCases, id: \.self) { mode in
-                        Button(mode.displayName) {
-                            volumeManager.setInteractionMode(mode)
+                    // Mode
+                    HStack(spacing: 6) {
+                        settingsLabel("mode")
+                        ForEach(InteractionMode.allCases, id: \.self) { mode in
+                            Button(mode.displayName) {
+                                volumeManager.setInteractionMode(mode)
+                            }
+                            .font(.system(size: 11, weight: volumeManager.interactionMode == mode ? .bold : .regular, design: .monospaced))
+                            .foregroundColor(volumeManager.interactionMode == mode ? .black : .white.opacity(0.6))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(volumeManager.interactionMode == mode ? Color.white : Color.white.opacity(0.1))
+                            )
                         }
-                        .font(.system(size: 11, weight: volumeManager.interactionMode == mode ? .bold : .regular, design: .monospaced))
-                        .foregroundColor(volumeManager.interactionMode == mode ? .black : .white.opacity(0.6))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(volumeManager.interactionMode == mode ? Color.white : Color.white.opacity(0.1))
-                        )
+                    }
+
+                    // Toggle row: debug + bounce log
+                    HStack(spacing: 6) {
+                        settingsLabel("debug")
+                        settingsToggle(showDebug ? "on" : "off", isOn: showDebug) {
+                            showDebug.toggle()
+                            UserDefaults.standard.set(showDebug, forKey: "showDebug")
+                        }
+
+                        settingsLabel("bounce")
+                            .padding(.leading, 8)
+                        settingsToggle(
+                            networkManager.debugBounceLog ? "on" : "off",
+                            isOn: networkManager.debugBounceLog,
+                            onColor: .green
+                        ) {
+                            networkManager.debugBounceLog.toggle()
+                            if !networkManager.debugBounceLog {
+                                networkManager.clearBounceLog()
+                            }
+                        }
+                    }
+
+                    // Toggle row: polling + optimistic
+                    HStack(spacing: 6) {
+                        settingsLabel("polling")
+                        settingsToggle(
+                            networkManager.debugMutePolling ? "muted" : "live",
+                            isOn: !networkManager.debugMutePolling,
+                            offColor: .red
+                        ) {
+                            networkManager.debugMutePolling.toggle()
+                        }
+
+                        settingsLabel("optimistic")
+                            .padding(.leading, 8)
+                        settingsToggle(
+                            networkManager.debugNoOptimistic ? "off" : "on",
+                            isOn: !networkManager.debugNoOptimistic,
+                            offColor: .red
+                        ) {
+                            networkManager.debugNoOptimistic.toggle()
+                        }
+                    }
+
+                    // Toggle row: bluetooth mic
+                    HStack(spacing: 6) {
+                        settingsLabel("bt mic")
+                        settingsToggle(
+                            bluetoothMic ? "on" : "off",
+                            isOn: bluetoothMic
+                        ) {
+                            bluetoothMic.toggle()
+                            UserDefaults.standard.set(bluetoothMic, forKey: "bluetoothMic")
+                        }
+                    }
+
+                    // IP
+                    HStack(spacing: 6) {
+                        settingsLabel("ip")
+                        TextField("192.168.1.x", text: $settingsIP)
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.never)
+                            .keyboardType(.decimalPad)
+                            .focused($ipFieldFocused)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color.white.opacity(0.08))
+                            )
+                            .onSubmit { connectIP() }
+                        Button("connect") { connectIP() }
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(Color.white)
+                            .cornerRadius(4)
                     }
                 }
-
-                // Debug
-                HStack {
-                    Text("debug")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.5))
-                    Spacer()
-                    Button(showDebug ? "on" : "off") {
-                        showDebug.toggle()
-                        UserDefaults.standard.set(showDebug, forKey: "showDebug")
-                    }
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundColor(showDebug ? .black : .white.opacity(0.6))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(showDebug ? Color.white : Color.white.opacity(0.1))
-                    )
-                }
-
-                // IP
-                HStack(spacing: 8) {
-                    Text("ip")
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.5))
-                    TextField("192.168.1.x", text: $settingsIP)
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.decimalPad)
-                        .focused($ipFieldFocused)
-                        .onSubmit { connectIP() }
-                    Button("connect") { connectIP() }
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundColor(.black)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.white)
-                        .cornerRadius(4)
-                }
+                .padding(12)
             }
-            .padding(14)
+            .frame(maxWidth: 340, maxHeight: 260)
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.black)
@@ -176,9 +223,42 @@ struct ContentView: View {
                             .stroke(Color.white.opacity(0.3), lineWidth: 1)
                     )
             )
-            .padding(.horizontal, 20)
-            .padding(.bottom, 40)
+            .padding(.bottom, 6)
         }
+    }
+
+    // MARK: - Settings Helpers
+
+    private func settingsLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, design: .monospaced))
+            .foregroundColor(.white.opacity(0.4))
+    }
+
+    private func settingsToggle(
+        _ label: String,
+        isOn: Bool,
+        onColor: Color = .white,
+        offColor: Color? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        let activeColor = isOn ? onColor : (offColor ?? .white)
+        let bgColor = isOn
+            ? onColor.opacity(onColor == .white ? 1.0 : 0.2)
+            : (offColor != nil ? offColor!.opacity(0.2) : Color.white.opacity(0.1))
+        let fgColor = isOn
+            ? (onColor == .white ? Color.black : onColor)
+            : (offColor ?? .white.opacity(0.6))
+
+        return Button(label, action: action)
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .foregroundColor(fgColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(bgColor)
+            )
     }
 
     // MARK: - Actions
@@ -200,10 +280,16 @@ struct ContentView: View {
 
         case .dictationStarted:
             audioManager.startRecording()
+            networkManager.notifyRecordingStart()
 
         case .dictationEnded:
             audioManager.stopRecording()
-            networkManager.sendEnter()
+            let hasText = !audioManager.transcribedText.isEmpty || !audioManager.partialText.isEmpty
+            if hasText {
+                networkManager.sendEnterAfterDictation()
+            } else {
+                networkManager.notifyRecordingStop()
+            }
             volumeManager.recoverAfterAudioEngine()
 
         case .sendDoubleEscape:
@@ -212,10 +298,13 @@ struct ContentView: View {
     }
 
     private func wireAudioCallbacks() {
-        audioManager.onPartialResult = { text, previousLength in
-            networkManager.streamText(text, isFinal: false, previousLength: previousLength)
+        audioManager.onPartialResult = { text, previousLength, sequence in
+            networkManager.streamText(text, isFinal: false, previousLength: previousLength, sequence: sequence)
         }
         audioManager.onFinalResult = { _ in }
+        audioManager.onDebugLog = { message in
+            networkManager.sendDebugLog(message)
+        }
     }
 }
 

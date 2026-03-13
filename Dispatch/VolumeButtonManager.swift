@@ -72,14 +72,14 @@ final class VolumeButtonManager {
         }
     }
 
-    /// Debounce window for vol-up actions in simple mode.
-    /// A single physical press can generate 1-3 KVO events; only the first fires cycleNext.
-    private let simpleUpDebounceMs: Double = 250
+    // simpleUpDebounceMs removed — directional reset filter handles KVO duplicates
 
-    /// Debounce window for vol-down in simple mode (shorter to allow double-tap detection).
-    /// Duplicate KVO events from a single press arrive within ~50-80ms.
-    /// Human double-taps arrive at ~200-350ms. 120ms sits safely between.
-    private let simpleDownDebounceMs: Double = 120
+    /// Decision timer for vol-down in simple mode.
+    /// After this many seconds with no new vol-down KVO, evaluate the count.
+    private let simpleDownDecisionTimeout: TimeInterval = 0.500
+    /// Release timer during dictation — stop recording this long after last KVO event.
+    /// Must be long enough to survive audio engine startup disrupting KVO (~500-800ms).
+    private let simpleDictationReleaseTimeout: TimeInterval = 1.0
 
     // MARK: Internal State
 
@@ -109,12 +109,20 @@ final class VolumeButtonManager {
     private var kvoObservation: NSKeyValueObservation?
     private var lastKnownVolume: Float = 0.5
     private var lastKVOTime: CFAbsoluteTime = 0
-    private var suppressEventsUntil: CFAbsoluteTime = 0
-    private var lastResetRequestTime: CFAbsoluteTime = 0
-    private var lastSimpleUpTime: CFAbsoluteTime = 0
+    // lastSimpleUpTime removed — no longer debouncing vol-up
     /// Time of the last vol-down event that actually incremented the count.
     /// Used to debounce duplicate KVO events from a single physical press.
     private var lastDownIncrementTime: CFAbsoluteTime = 0
+    /// Running count of real down KVO events in current gesture (0 = idle).
+    private var simpleDownCount: Int = 0
+    /// Timestamp of the first down event in the current gesture.
+    private var simpleDownStartTime: CFAbsoluteTime = 0
+    /// Non-resetting 500ms decision timer — fires once to evaluate down-event count.
+    private var simpleDownDecisionTimer: Timer?
+
+    // Burst cap — limits rapid-fire cycles when volume button is held
+    private var cycleBurstCount: Int = 0
+    private let cycleBurstMax: Int = 4
 
     // Haptics
     private let lightHaptic = UIImpactFeedbackGenerator(style: .light)
@@ -156,6 +164,8 @@ final class VolumeButtonManager {
         isActive = false
         releaseTimer?.invalidate()
         releaseTimer = nil
+        simpleDownDecisionTimer?.invalidate()
+        simpleDownDecisionTimer = nil
         dictationSafetyTimer?.invalidate()
         dictationSafetyTimer = nil
         gestureState = .idle
@@ -181,6 +191,9 @@ final class VolumeButtonManager {
         // Reset state machine when switching modes
         releaseTimer?.invalidate()
         releaseTimer = nil
+        simpleDownDecisionTimer?.invalidate()
+        simpleDownDecisionTimer = nil
+        simpleDownCount = 0
         gestureState = .idle
         if isDictating {
             isDictating = false
@@ -192,13 +205,23 @@ final class VolumeButtonManager {
     func setHiddenVolumeView(_ volumeView: MPVolumeView) {
         hiddenVolumeView = volumeView
         debugSliderConnected = true
+        findSliderSubview(in: volumeView, attempt: 1)
+    }
+
+    private func findSliderSubview(in volumeView: MPVolumeView, attempt: Int) {
         if let slider = volumeView.subviews.first(where: { $0 is UISlider }) as? UISlider {
             hiddenVolumeSlider = slider
-            log("Slider subview found")
+            log("Slider subview found (attempt \(attempt))")
+            resetVolumeNextRunLoop()
+        } else if attempt <= 10 {
+            // MPVolumeView may populate subviews lazily after layout — retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.findSliderSubview(in: volumeView, attempt: attempt + 1)
+            }
         } else {
-            log("WARNING: No slider subview — MPMusicPlayerController only")
+            log("WARNING: No slider subview after \(attempt) attempts")
+            resetVolumeNextRunLoop()
         }
-        resetVolumeNextRunLoop()
     }
 
     // MARK: - Audio Session
@@ -206,10 +229,14 @@ final class VolumeButtonManager {
     func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
         do {
+            var options: AVAudioSession.CategoryOptions = [.defaultToSpeaker, .mixWithOthers]
+            if UserDefaults.standard.bool(forKey: "bluetoothMic") {
+                options.insert(.allowBluetooth)
+            }
             try session.setCategory(
                 .playAndRecord,
                 mode: .default,
-                options: [.defaultToSpeaker, .mixWithOthers, .allowBluetooth]
+                options: options
             )
             try session.setActive(true)
         } catch {
@@ -265,46 +292,42 @@ final class VolumeButtonManager {
 
         let gapStr = gap > 0 ? String(format: "gap=%.0fms", gap) : "gap=—"
 
-        // Suppress events briefly after hold ends (audio session reconfiguration noise)
-        if now < suppressEventsUntil {
-            log("KVO#\(debugKVOCount) SUPPRESSED \(gapStr)")
-            return
-        }
-
         // Ignore negligible changes (noise)
         guard abs(delta) > 0.001 else {
             log("KVO#\(debugKVOCount) SKIP \(gapStr)")
             return
         }
 
-        // Ignore our own volume resets landing — volume moving TOWARD 0.5
-        // Only within 200ms of a reset request; stale offsets from failed resets
-        // must not eat real button presses
+        // Ignore our own volume resets — any event moving TOWARD 0.5 is self-inflicted.
+        // We always reset to 0.5 after each real press, so real presses always move
+        // away from 0.5 and resets always move back toward it.
         let wasDist = abs(oldVolume - 0.5)
         let nowDist = abs(newVolume - 0.5)
-        let resetAge = (now - lastResetRequestTime) * 1000
-        if nowDist < wasDist && resetAge < 200 {
+        if nowDist < wasDist {
             debugIgnoredCount += 1
-            lastKnownVolume = newVolume  // Keep baseline in sync even when filtering
-            log("KVO#\(debugKVOCount) RESET-BOUNCE \(gapStr) (d=\(String(format: "%+.3f", delta)) rst=\(String(format: "%.0f", resetAge))ms)")
+            lastKnownVolume = newVolume
+            if isDictating {
+                startReleaseTimer()
+                log("KVO#\(debugKVOCount) RESET-KEEPALIVE \(gapStr)")
+            } else {
+                log("KVO#\(debugKVOCount) RESET-BOUNCE \(gapStr)")
+            }
             return
         }
 
         let direction: ButtonDirection = delta > 0 ? .up : .down
 
-        // In simple mode, suppress vol-down ghost events caused by vol-up resets.
-        // After a vol-up fires, the reset to 0.5 arrives as a vol-down KVO within ~100ms.
-        if interactionMode == .simpleFast && direction == .down {
-            let sinceLastUp = (now - lastSimpleUpTime) * 1000
-            if sinceLastUp < 250 {
-                debugIgnoredCount += 1
-                log("KVO#\(debugKVOCount) GHOST-DN \(gapStr) sinceUp=\(String(format: "%.0f", sinceLastUp))ms")
-                resetVolumeNextRunLoop()
-                return
+        // Track down-event index for gesture analysis
+        if direction == .down {
+            if simpleDownCount == 0 {
+                simpleDownStartTime = now
             }
+            simpleDownCount += 1
+            let elapsed = (now - simpleDownStartTime) * 1000
+            log("KVO#\(debugKVOCount) DN[\(simpleDownCount)] vol=\(String(format: "%.3f", newVolume)) \(gapStr) elapsed=\(String(format: "%.0fms", elapsed)) st=\(debugState)")
+        } else {
+            log("KVO#\(debugKVOCount) UP vol=\(String(format: "%.3f", newVolume)) \(gapStr) st=\(debugState)")
         }
-
-        log("KVO#\(debugKVOCount) \(direction == .up ? "UP" : "DN") vol=\(String(format: "%.3f", newVolume)) \(gapStr) st=\(debugState)")
 
         // During active dictation, ignore all events except for timer keepalive.
         // Reset bounces and real hold-continuation events both just keep the
@@ -328,22 +351,26 @@ final class VolumeButtonManager {
     private func resetVolumeNextRunLoop() {
         debugResetCount += 1
         let resetID = debugResetCount
-        lastResetRequestTime = CFAbsoluteTimeGetCurrent()
+
 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
 
             let before = AVAudioSession.sharedInstance().outputVolume
 
-            // Strategy 1: MPMusicPlayerController (primary)
-            let player = MPMusicPlayerController.applicationMusicPlayer
-            (player as NSObject).setValue(Float(0.5), forKey: "volume")
-
-            // Strategy 2: Slider fallback
+            // Use MPVolumeView slider to reset volume.
+            // Do NOT use MPMusicPlayerController.setValue — it activates the
+            // Now Playing/Music framework and can steal app focus (backgrounding the app).
             if let slider = self.hiddenVolumeSlider {
                 slider.value = 0.5
                 slider.sendActions(for: .valueChanged)
                 slider.sendActions(for: .touchUpInside)
+            } else {
+                // Slider not yet available — skip reset rather than using
+                // MPMusicPlayerController which steals app focus
+                self.lastKnownVolume = AVAudioSession.sharedInstance().outputVolume
+                self.log("RESET#\(resetID) skipped — no slider yet")
+                return
             }
 
             // Verify after a short delay
@@ -374,15 +401,17 @@ final class VolumeButtonManager {
 
         debugResetCount += 1
         let resetID = debugResetCount
-        lastResetRequestTime = CFAbsoluteTimeGetCurrent()
 
-        let player = MPMusicPlayerController.applicationMusicPlayer
-        (player as NSObject).setValue(Float(0.5), forKey: "volume")
 
         if let slider = hiddenVolumeSlider {
             slider.value = 0.5
             slider.sendActions(for: .valueChanged)
             slider.sendActions(for: .touchUpInside)
+        } else {
+            // Slider not yet available — skip reset, adjust baseline
+            lastKnownVolume = AVAudioSession.sharedInstance().outputVolume
+            log("RESET#\(resetID) retry#\(attempt) skipped — no slider yet")
+            return
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -486,113 +515,121 @@ final class VolumeButtonManager {
     private func handleSimpleFastMode(_ direction: ButtonDirection) {
         switch direction {
         case .up:
-            // Debounce: a single physical press can fire 1-3 KVO events.
-            // Only the first one triggers cycleNext; extras are suppressed.
-            let now = CFAbsoluteTimeGetCurrent()
-            let sinceLastUp = (now - lastSimpleUpTime) * 1000
-            if sinceLastUp < simpleUpDebounceMs {
-                log("SIMPLE: UP debounce \(String(format: "%.0f", sinceLastUp))ms — skipped")
+            // Every physical vol-up fires cycleNext immediately (burst-capped).
+            // Cancel any pending down-gesture.
+            simpleDownCount = 0
+            simpleDownDecisionTimer?.invalidate()
+            simpleDownDecisionTimer = nil
+            gestureState = .idle
+            guard cycleBurstCount < cycleBurstMax else {
+                log("SIMPLE: cycleNext SUPPRESSED (burst \(cycleBurstCount)/\(cycleBurstMax))")
+                startReleaseTimer()
                 return
             }
-            lastSimpleUpTime = now
+            cycleBurstCount += 1
             fireAction(.cycleNext)
             fireIndicator(.cycleNext)
             lightHaptic.impactOccurred()
-            log("SIMPLE: immediate cycleNext")
+            log("SIMPLE: immediate cycleNext (burst \(cycleBurstCount)/\(cycleBurstMax))")
+            startReleaseTimer()
 
         case .down:
-            switch gestureState {
-            case .idle:
-                // First vol-down event — no indicator yet, wait for gesture resolution
-                lastDownIncrementTime = CFAbsoluteTimeGetCurrent()
-                gestureState = .pressing(direction: .down, eventCount: 1, startTime: lastDownIncrementTime)
+            // simpleDownCount already incremented in handleVolumeChange.
+            if simpleDownCount == 1 {
+                // First down event — start non-resetting 500ms decision timer.
+                gestureState = .pressing(direction: .down, eventCount: 1, startTime: simpleDownStartTime)
+                simpleDownDecisionTimer?.invalidate()
+                simpleDownDecisionTimer = Timer.scheduledTimer(
+                    withTimeInterval: simpleDownDecisionTimeout,
+                    repeats: false
+                ) { [weak self] _ in
+                    Task { @MainActor in
+                        self?.simpleDownDecisionFired()
+                    }
+                }
+            } else if simpleDownCount >= 3 && !isDictating {
+                // 3rd event — start recording immediately, cancel the decision timer.
+                simpleDownDecisionTimer?.invalidate()
+                simpleDownDecisionTimer = nil
+                isDictating = true
+                fireAction(.dictationStarted)
+                fireIndicator(.dictationStarted)
+                mediumHaptic.impactOccurred()
+                startDictationSafetyTimer()
                 startReleaseTimer()
-
-            case .pressing(let currentDir, let count, let startTime):
-                guard currentDir == .down else {
-                    // Was tracking something else — shouldn't happen in simple mode
-                    // since vol-up doesn't set state, but handle gracefully
-                    lastDownIncrementTime = CFAbsoluteTimeGetCurrent()
-                    gestureState = .pressing(direction: .down, eventCount: 1, startTime: lastDownIncrementTime)
-                    fireIndicator(.cyclePrevious)
-                    startReleaseTimer()
-                    return
-                }
-
-                // Debounce: a single physical press can fire 2-3 KVO events.
-                // Only increment count if enough time has passed since last increment.
-                let now = CFAbsoluteTimeGetCurrent()
-                let sinceLastIncrement = (now - lastDownIncrementTime) * 1000
-                if sinceLastIncrement < simpleDownDebounceMs {
-                    log("SIMPLE: DN debounce \(String(format: "%.0f", sinceLastIncrement))ms — skipped")
-                    startReleaseTimer()
-                    return
-                }
-
-                lastDownIncrementTime = now
-                let newCount = count + 1
-                gestureState = .pressing(direction: .down, eventCount: newCount, startTime: startTime)
-
-                if newCount == 2 {
-                    // 2nd event — don't fire escape yet; defer to release timer.
-                    // If a 3rd event arrives, it becomes dictation instead.
-                    log("SIMPLE: count=2, deferring escape to release timer")
-                    startReleaseTimer()
-                } else if newCount == 3 {
-                    // Third event → transition to dictation hold
-                    isDictating = true
-                    fireAction(.dictationStarted)
-                    fireIndicator(.dictationStarted)
-                    mediumHaptic.impactOccurred()
-                    startDictationSafetyTimer()
-                    log("SIMPLE: hold → dictation started")
-                    startReleaseTimer()
-                } else {
-                    // 4+ events — continuation of hold, just reset timer
-                    startReleaseTimer()
-                }
+                log("SIMPLE: hold detected (count=\(simpleDownCount)) → dictation started (immediate)")
+            } else {
+                // 2nd event — just update state, timer keeps running.
+                gestureState = .pressing(direction: .down, eventCount: simpleDownCount, startTime: simpleDownStartTime)
             }
         }
     }
 
-    private func releaseTimerFiredSimpleFast() {
-        switch gestureState {
-        case .idle:
-            break
-        case .pressing(let direction, let count, let startTime):
-            let duration = CFAbsoluteTimeGetCurrent() - startTime
-            log("RELEASE(simple): dir=\(direction == .up ? "UP" : "DN") events=\(count) duration=\(String(format: "%.0fms", duration * 1000))")
+    private func simpleDownDecisionFired() {
+        simpleDownDecisionTimer = nil
+        let count = simpleDownCount
+        let elapsed = (CFAbsoluteTimeGetCurrent() - simpleDownStartTime) * 1000
+        log("SIMPLE: decision fired — count=\(count) elapsed=\(String(format: "%.0fms", elapsed))")
 
-            guard direction == .down else {
-                // Vol-up shouldn't be in state machine in simple mode
-                gestureState = .idle
-                return
-            }
-
-            switch count {
-            case 1:
-                // Single vol-down tap → do nothing in simple mode
-                break
-            case 2:
-                // Double-tap confirmed — fire escape now that no 3rd event arrived
-                fireAction(.sendDoubleEscape)
-                fireIndicator(.sendDoubleEscape)
-                heavyHaptic.impactOccurred()
-                log("SIMPLE: release timer → escape (count stayed at 2)")
-            default:
-                // Hold ended → end dictation
-                endHold(.down)
-            }
+        switch count {
+        case 1:
+            // Single tap → no action (reserved)
+            log("SIMPLE: single tap — ignored")
+            simpleDownCount = 0
             gestureState = .idle
+        case 2:
+            // Double tap → double escape
+            fireAction(.sendDoubleEscape)
+            fireIndicator(.sendDoubleEscape)
+            heavyHaptic.impactOccurred()
+            log("SIMPLE: double tap → escape")
+            simpleDownCount = 0
+            gestureState = .idle
+        default:
+            // 3+ events → start recording
+            isDictating = true
+            fireAction(.dictationStarted)
+            fireIndicator(.dictationStarted)
+            mediumHaptic.impactOccurred()
+            startDictationSafetyTimer()
+            startReleaseTimer()
+            log("SIMPLE: hold detected (count=\(count)) → dictation started")
         }
+    }
+
+    private func releaseTimerFiredSimpleFast() {
+        // Only fires during dictation — 200ms after last KVO event
+        if isDictating {
+            log("SIMPLE: dictation release — stopping")
+            isDictating = false
+            dictationSafetyTimer?.invalidate()
+            dictationSafetyTimer = nil
+            fireAction(.dictationEnded)
+            heavyHaptic.impactOccurred()
+        }
+        // Reset burst cap on release — finger lifted, can cycle again
+        if cycleBurstCount > 0 {
+            log("SIMPLE: burst reset (\(cycleBurstCount) → 0)")
+            cycleBurstCount = 0
+        }
+        simpleDownCount = 0
+        gestureState = .idle
     }
 
     // MARK: - Release Timer
 
     private func startReleaseTimer() {
         releaseTimer?.invalidate()
+        let timeout: TimeInterval
+        if isDictating {
+            // SimpleFast: short release (200ms) since decision timer already resolved the gesture.
+            // Primary: longer (800ms) to accommodate iOS auto-repeat rate.
+            timeout = interactionMode == .simpleFast ? simpleDictationReleaseTimeout : 0.800
+        } else {
+            timeout = effectiveReleaseTimeout
+        }
         releaseTimer = Timer.scheduledTimer(
-            withTimeInterval: effectiveReleaseTimeout,
+            withTimeInterval: timeout,
             repeats: false
         ) { [weak self] _ in
             Task { @MainActor in
@@ -623,8 +660,6 @@ final class VolumeButtonManager {
     }
 
     private func endHold(_ direction: ButtonDirection) {
-        suppressEventsUntil = CFAbsoluteTimeGetCurrent() + 0.6
-
         switch direction {
         case .up:
             isDictating = false

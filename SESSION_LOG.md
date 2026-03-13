@@ -2,6 +2,58 @@
 
 ---
 
+## Session 8 — 2026-03-13 12:26 — Fix Garbled Dictation + ANSI Overlay System
+
+### Goal
+Fix garbled dictation text in iTerm2 terminals. Root cause: volatile speech partials were typed directly into the terminal input buffer, requiring constant backspace/delete/retype which garbled text. Solution: display live text via ANSI escape overlay on the Mac screen (not in terminal input), then commit final clean text to terminal only when dictation ends.
+
+### Accomplished
+- **ANSI dictation overlay system** — live dictation text displayed as a full-width black bar at the bottom of the terminal using ANSI escape sequences written directly to the TTY file descriptor. Zero AppleScript during dictation — instant, race-free.
+  - `write_dictation_overlay(tty_path, text)` — renders 🎤 + text with black background at terminal bottom row
+  - `clear_dictation_overlay(tty_path)` — removes overlay on dictation end
+  - `get_tty_size(tty_path)` — gets terminal dimensions via `fcntl.ioctl(TIOCGWINSZ)`
+- **Commit-on-enter flow** — `/stream-text` only updates overlay (no typing). When Enter arrives via `/type` with `_dictation_final_text` set, commits the accumulated text as one clean `type_text_iterm()` call
+- **TTY capture on recording start** — `/recording-start` grabs the active session's TTY path via `get_session_tty()`
+- **Escape clears dictation** — `/escape` handler clears overlay and resets `_dictation_final_text`
+- **Emoji double-width fix** — adjusted padding to account for 🎤 taking 2 terminal columns but 1 Python character
+- **Serial dictation queue** (NetworkManager.swift) — FIFO queue serializes `/stream-text` requests so only one is in-flight at a time
+- **Server-side text lock** — `_text_lock = threading.Lock()` around `/stream-text` handler prevents concurrent thread races
+- **Sequence number rejection** — belt-and-suspenders: server rejects out-of-order `/stream-text` requests via monotonic sequence counter
+- **Bluetooth mic toggle** — UserDefaults-based toggle in settings (default: off/internal mic only)
+- **SpeechAnalyzer + SFSpeechRecognizer dual-engine plan** — designed but not yet implemented (Part 3 of plan)
+
+### In Progress / Incomplete
+- **Part 3: SpeechAnalyzer engine** (iOS 26+) — plan written in `synchronous-forging-island.md`, not yet coded. Would replace SFSpeechRecognizer's text-dropping behavior with Apple's new WWDC 2025 API
+- **iPhone app UI tweaks** — user mentioned positioning elements near physical button locations, settings menu styling during recording
+
+### Key Decisions
+- ANSI escape overlay chosen over: macOS floating window (fragile, focus issues), iTerm2 status bar (limited API), terminal title bar (too small). Direct TTY write is instant with no subprocess overhead.
+- Overlay at bottom row (`rows - 1`) so user sees it where they're already looking (near the prompt)
+- No text enters terminal until explicit commit — eliminates entire category of race conditions
+
+### Files Changed
+- `server/dispatch_server.py` — ANSI overlay system, commit-on-enter flow, TTY capture, text lock, sequence rejection, emoji width fix
+- `Dispatch/NetworkManager.swift` — serial dictation queue, sequence param
+- `Dispatch/AudioManager.swift` — sequence counter, BT UserDefaults check
+- `Dispatch/ContentView.swift` — pass sequence in callback, BT toggle in settings
+- `Dispatch/VolumeButtonManager.swift` — BT UserDefaults check in configureAudioSession
+- `Dispatch.xcodeproj/project.pbxproj` — project changes
+- `Dispatch/HiddenVolumeView.swift` — minor changes
+
+### Known Issues
+- SFSpeechRecognizer drops text after pauses (>1s silence) — Part 3 plan addresses this
+- `/focus-push` ID format mismatch still open from Session 7
+
+### Running Services
+- `dispatch_server.py` running on port 9876
+
+### Next Steps
+1. Implement Part 3: SpeechAnalyzer engine (iOS 26+) with SFSpeechRecognizer+speechDuration fallback
+2. iPhone app UI tweaks — button positioning, settings styling during recording
+3. Test overlay with long dictation text (multi-line wrapping behavior)
+
+---
+
 ## Session 7 — 2026-03-13 12:24 — /watch Long-Poll Fix + Visual Explainer
 
 ### Goal
