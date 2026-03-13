@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """Dispatch Server — control iTerm2 windows from iPhone."""
 
+import fcntl
 import json
 import os
 import socket
+import struct
 import subprocess
 import tempfile
+import termios
 import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TRANSCRIBE_BIN = os.path.join(SCRIPT_DIR, "transcribe")
+DEBUG_LOG_FILE = os.path.join(SCRIPT_DIR, "dictation_debug.log")
 
 PORT = 9876
 TARGET_APP = "iTerm2"
@@ -38,6 +42,12 @@ state = {
 
 # Streaming dictation state
 current_typed_text = ""
+_last_text_seq = 0
+_dictation_tty = None       # TTY path for the active dictation overlay
+_dictation_final_text = ""   # Accumulated text to commit on dictation end
+
+# Serialize all /stream-text read-diff-apply-update blocks
+_text_lock = threading.Lock()
 
 # Recording state — tracks whether we're in a recording session
 _recording_active = False
@@ -50,6 +60,42 @@ _cache_lock = threading.Lock()
 # background cache refresh and /cycle endpoint, which cause iTerm2 to
 # return duplicate/missing window IDs during concurrent enumeration
 _applescript_lock = threading.Lock()
+
+# Gate for /cycle background rebuilds — at most 1 in-flight + 1 queued
+_rebuild_pending = threading.Event()  # set = a rebuild is already queued/waiting
+_rebuild_in_flight = threading.Event()  # set = a rebuild is currently running
+
+# Long-poll state change notification (focus, move, resize)
+_state_changed = threading.Condition()
+_last_active_id = None
+_last_layout_fingerprint = None
+
+
+def _layout_fingerprint(layout_windows):
+    """Hash of window positions/sizes — changes on move or resize."""
+    parts = []
+    for w in sorted(layout_windows, key=lambda w: w.get("id", "")):
+        parts.append(f"{w.get('id')}:{w.get('x')},{w.get('y')},{w.get('width')},{w.get('height')}")
+    return "|".join(parts)
+
+
+def _notify_focus_change(new_active_id):
+    """Signal /watch long-poll clients that focus changed."""
+    global _last_active_id
+    if new_active_id != _last_active_id:
+        _last_active_id = new_active_id
+        with _state_changed:
+            _state_changed.notify_all()
+
+
+def _notify_layout_change(layout_windows):
+    """Signal /watch long-poll clients that layout changed (move/resize)."""
+    global _last_layout_fingerprint
+    fp = _layout_fingerprint(layout_windows)
+    if fp != _last_layout_fingerprint:
+        _last_layout_fingerprint = fp
+        with _state_changed:
+            _state_changed.notify_all()
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +195,8 @@ def activate_and_highlight(new_index):
     new_id = state["window_ids"][new_index]
 
     # Reset streaming dictation state when cycling windows
-    current_typed_text = ""
+    with _text_lock:
+        current_typed_text = ""
 
     script = f'''
     tell application "{TARGET_APP}"
@@ -258,6 +305,71 @@ def set_recording_color(on: bool):
         print(f"  [color] Recording OFF — {tty} -> {restore}")
 
 
+def get_tty_size(tty_path):
+    """Get terminal dimensions (rows, cols) from a TTY path."""
+    try:
+        with open(tty_path) as fd:
+            result = fcntl.ioctl(fd.fileno(), termios.TIOCGWINSZ, b'\x00' * 8)
+            rows, cols = struct.unpack('hh', result[:4])
+            return rows, cols
+    except Exception:
+        return 24, 80  # fallback
+
+
+def write_dictation_overlay(tty_path, text):
+    """Show live dictation text as a full-width bar at the bottom of the terminal.
+
+    Uses save/restore cursor so the shell prompt is untouched.
+    The text never enters the shell input buffer.
+    """
+    if not tty_path:
+        return
+    try:
+        rows, cols = get_tty_size(tty_path)
+        safe_text = text.replace('\n', ' ')
+        # Emoji 🎤 is double-width in terminal but 1 char in Python.
+        # Reserve cols-1 display columns to prevent wrap onto a 2nd line.
+        label = f" \U0001f3a4  {safe_text} "
+        display_width = len(label) + 1  # +1 for emoji extra column
+        pad_needed = max(0, cols - 1 - display_width)
+        padded = label + " " * pad_needed
+        # Position at second-to-last row (above the prompt)
+        target_row = max(1, rows - 1)
+        seq = (
+            "\033[s"                # save cursor
+            f"\033[{target_row};1H" # move to target row, col 1
+            "\033[2K"               # clear line
+            "\033[48;2;0;0;0m"      # solid black background (RGB)
+            "\033[38;2;200;200;200m" # light gray text
+            f"{padded}"
+            "\033[0m"               # reset all attributes
+            "\033[u"                # restore cursor
+        )
+        with open(tty_path, "w") as f:
+            f.write(seq)
+    except Exception as e:
+        print(f"  [overlay] Failed to write: {e}")
+
+
+def clear_dictation_overlay(tty_path):
+    """Remove the dictation overlay line from the terminal."""
+    if not tty_path:
+        return
+    try:
+        rows, _ = get_tty_size(tty_path)
+        target_row = max(1, rows - 1)
+        seq = (
+            "\033[s"                # save cursor
+            f"\033[{target_row};1H" # move to target row
+            "\033[2K"               # clear line
+            "\033[u"                # restore cursor
+        )
+        with open(tty_path, "w") as f:
+            f.write(seq)
+    except Exception as e:
+        print(f"  [overlay] Failed to clear: {e}")
+
+
 def type_text_iterm(text, enter=False):
     """Type text into the active iTerm2 session using iTerm2's native 'write text' API."""
     escaped = text.replace('\\', '\\\\').replace('"', '\\"')
@@ -321,6 +433,35 @@ def send_backspaces_iterm(count):
             print(f"  [warn] send_backspaces failed: {result.stderr.strip()}")
     except subprocess.TimeoutExpired:
         print("  [error] send_backspaces timed out")
+
+
+def kill_line_and_retype_iterm(text):
+    """Clear the current line with Ctrl-U then type the full text.
+
+    Builds a single string: Ctrl-U + text, sent as one write text call.
+    Ctrl-U (ASCII 21) kills from cursor to start of line in most shells/CLIs.
+    """
+    escaped = text.replace('\\', '\\\\').replace('"', '\\"')
+    script = f'''
+    tell application "{TARGET_APP}"
+        tell current session of current tab of current window
+            write text ((ASCII character 21) & "{escaped}") newline no
+        end tell
+    end tell
+    '''
+    try:
+        with _applescript_lock:
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=5
+            )
+        if result.returncode != 0:
+            print(f"  [error] kill_line_and_retype failed: {result.stderr.strip()}")
+            return False
+        return True
+    except subprocess.TimeoutExpired:
+        print("  [error] kill_line_and_retype timed out")
+        return False
 
 
 def send_escape():
@@ -597,8 +738,11 @@ def build_status():
         idx = state["current_index"]
         name = get_window_name(idx) if total > 0 else "No Windows"
 
-    # Detect if the user changed the active window on the Mac side
-    if total > 0 and layout_windows:
+    # Detect if the user changed the active window on the Mac side.
+    # Skip while a phone-initiated cycle is in-flight (AppleScript hasn't
+    # confirmed yet), so Mac-side focus is stale and would snap us backward.
+    cycle_cooldown = state.get("cycle_confirmed_seq", 0) < state.get("last_cycle_seq", 0)
+    if total > 0 and layout_windows and not cycle_cooldown:
         actual_active_id = layout_windows[layout_active_index]["id"] if layout_active_index < len(layout_windows) else None
         if actual_active_id is not None:
             # Find this window in our locked list
@@ -608,6 +752,8 @@ def build_status():
                     state["current_index"] = i
                     idx = i
                     name = get_window_name(idx)
+                    # Signal long-poll /watch clients
+                    _notify_focus_change(str(actual_active_id))
                     break
 
     # Filter layout to only include locked windows — prevents transient/ephemeral
@@ -636,6 +782,7 @@ def build_status():
         "mode": state["mode"],
         "screen": screen,
         "layout": layout_windows,
+        "last_cycle_seq": state.get("cycle_confirmed_seq", 0),
     }
 
 
@@ -650,6 +797,9 @@ def _refresh_cache_loop():
             status = build_status()
             with _cache_lock:
                 _cached_status = status
+            # Check for layout changes (move/resize) and notify /watch clients
+            if status.get("layout"):
+                _notify_layout_change(status["layout"])
         except Exception as e:
             print(f"  [cache] refresh error: {e}")
         time.sleep(0.5)
@@ -694,6 +844,34 @@ class DispatchHandler(BaseHTTPRequestHandler):
                 # First request before cache is populated
                 self.send_json(build_status())
 
+        elif self.path == "/watch":
+            # Long-poll: block until state changes (focus, move, resize) or 30s timeout
+            snapshot_id = _last_active_id
+            snapshot_layout = _last_layout_fingerprint
+            changed = False
+            with _state_changed:
+                _state_changed.wait(timeout=30)
+                changed = (_last_active_id != snapshot_id or
+                           _last_layout_fingerprint != snapshot_layout)
+
+            if changed:
+                print(f"  [watch] PUSH focus={_last_active_id != snapshot_id} layout={_last_layout_fingerprint != snapshot_layout}")
+                with _cache_lock:
+                    cached = dict(_cached_status) if _cached_status else {}
+                idx = state["current_index"]
+                active_id = str(state["window_ids"][idx]) if idx < len(state["window_ids"]) else ""
+                active_name = state["window_names"][idx] if idx < len(state["window_names"]) else ""
+                self.send_json({
+                    "changed": True,
+                    "current_index": idx,
+                    "active_window_id": active_id,
+                    "active_window": active_name,
+                    "layout": cached.get("layout", []),
+                    "screen": cached.get("screen", {}),
+                })
+            else:
+                self.send_json({"changed": False})
+
         elif self.path == "/ping":
             self.send_json({"ok": True})
 
@@ -712,7 +890,7 @@ class DispatchHandler(BaseHTTPRequestHandler):
     # -- POST endpoints ----------------------------------------------------
 
     def do_POST(self):
-        global current_typed_text
+        global current_typed_text, _dictation_final_text, _dictation_tty, _last_text_seq
 
         if self.path == "/dictate":
             length = int(self.headers.get('Content-Length', 0))
@@ -755,6 +933,9 @@ class DispatchHandler(BaseHTTPRequestHandler):
 
         if self.path == "/cycle":
             direction = body.get("direction", "next")
+            seq = body.get("seq", 0)
+            state["last_cycle_seq"] = seq
+            # (cycle_pending_until removed — seq-based guard handles cooldown now)
             total = len(state["window_ids"])
 
             if total == 0:
@@ -767,76 +948,162 @@ class DispatchHandler(BaseHTTPRequestHandler):
                 state["current_index"] = (state["current_index"] - 1) % total
 
             idx = state["current_index"]
-            name = activate_and_highlight(idx)
             active_id = str(state["window_ids"][idx])
-            print(f"  Cycled {direction} -> [{idx}] {name}")
-            # Return minimal response — skip heavy build_status() AppleScript calls
-            self.send_json({
+
+            # Run AppleScript synchronously — only respond after window is confirmed active.
+            name = activate_and_highlight(idx)
+            state["cycle_confirmed_seq"] = max(state.get("cycle_confirmed_seq", 0), seq)
+
+            confirmed_name = name or (state["window_names"][idx] if idx < len(state["window_names"]) else "?")
+            print(f"  Cycled {direction} -> [{idx}] {confirmed_name} (confirmed)")
+
+            # Build minimal response from cached data — no AppleScript calls.
+            # Grab screen_size and layout windows from the last cache so the
+            # phone has something to render immediately.
+            with _cache_lock:
+                cached = dict(_cached_status) if _cached_status else {}
+
+            response = {
                 "active_window_id": active_id,
                 "current_index": idx,
-                "active_window": name,
-            })
+                "active_window": confirmed_name,
+                "last_cycle_seq": seq,
+            }
+            # Overlay cached layout data so the phone can update its minimap
+            if cached:
+                response["screen"] = cached.get("screen", {})
+                response["layout"] = cached.get("layout", [])
+                response["total"] = cached.get("total", len(state["window_ids"]))
+                response["mode"] = state["mode"]
+
+            # Send response IMMEDIATELY — phone gets it without waiting for cache rebuild
+            self.send_json(response)
+
+            # Trigger background cache rebuild so next poll picks up fresh data
+            # Gate: at most 1 in-flight + 1 queued rebuild (prevents rapid-cycle pile-up)
+            if not _rebuild_pending.is_set():
+                _rebuild_pending.set()
+
+                def _bg_cache_rebuild():
+                    global _cached_status
+                    # Wait for any in-flight rebuild to finish before starting
+                    while _rebuild_in_flight.is_set():
+                        _rebuild_in_flight.wait()
+                    _rebuild_in_flight.set()
+                    _rebuild_pending.clear()  # allow next cycle to queue another
+                    try:
+                        status = build_status()
+                        with _cache_lock:
+                            _cached_status = status
+                    except Exception as e:
+                        print(f"  [cache] post-cycle rebuild error: {e}")
+                    finally:
+                        _rebuild_in_flight.clear()
+
+                threading.Thread(target=_bg_cache_rebuild, daemon=True).start()
+            else:
+                print(f"  [cache] rebuild already queued, skipping")
 
         elif self.path == "/stream-text":
             text = body.get("text", "")
             is_final = body.get("is_final", False)
-            previous_length = body.get("previous_length", 0)
+            seq = body.get("seq", 0)
 
-            # Calculate diff between what we already typed and what we need
-            chars_to_delete, chars_to_type = calculate_typing_diff(
-                current_typed_text, text
-            )
+            with _text_lock:
+                # Reject out-of-order arrivals
+                if seq > 0 and seq <= _last_text_seq:
+                    print(f"  [stream-text] REJECT seq={seq} <= last={_last_text_seq}")
+                    self.send_json({"ok": False, "reason": "stale_seq"})
+                    return
+                if seq > 0:
+                    _last_text_seq = seq
 
-            # Apply corrections (backspaces) if speech engine revised earlier words
-            if chars_to_delete > 0:
-                send_backspaces_iterm(chars_to_delete)
-                print(f"  Stream: deleted {chars_to_delete} chars")
+                # Update overlay — no typing into terminal during dictation
+                _dictation_final_text = text
+                write_dictation_overlay(_dictation_tty, text)
+                print(f"  Overlay: {repr(text[:60])}{'...' if len(text) > 60 else ''} seq={seq}")
 
-            # Type new characters without newline
-            if chars_to_type:
-                type_text_iterm(chars_to_type, enter=False)
-                print(f"  Stream: typed {repr(chars_to_type)}")
-
-            # Update tracked state
-            current_typed_text = text
-
-            # On final result, press Enter and reset
-            if is_final:
-                type_text_iterm("", enter=True)
-                current_typed_text = ""
-                print("  Stream: finalized with enter")
-
-            self.send_json({
-                "ok": True,
-                "typed_so_far": current_typed_text,
-                "is_final": is_final,
-            })
+            self.send_json({"ok": True, "is_final": is_final})
 
         elif self.path == "/type":
             text = body.get("text", "")
             enter = body.get("enter", False)
-            if text or enter:
+            # If Enter with no explicit text, commit accumulated dictation text
+            if enter and not text and _dictation_final_text:
+                commit_text = _dictation_final_text
+                with _text_lock:
+                    _dictation_final_text = ""
+                    current_typed_text = ""
+                type_text_iterm(commit_text, enter=True)
+                print(f"  Commit dictation: {repr(commit_text[:60])} + Enter")
+            elif text or enter:
                 type_text_iterm(text, enter=enter)
                 print(f"  Typed: {repr(text)} (enter={enter})")
             if enter:
-                current_typed_text = ""
+                with _text_lock:
+                    current_typed_text = ""
             self.send_json({"ok": True, "typed": text})
 
         elif self.path == "/escape":
+            clear_dictation_overlay(_dictation_tty)
             send_escape()
-            current_typed_text = ""  # Cancel any in-progress dictation tracking
-            print("  Sent double-escape (dictation state reset)")
+            with _text_lock:
+                current_typed_text = ""
+                _dictation_final_text = ""
+            print("  Sent double-escape (dictation state reset, overlay cleared)")
             self.send_json({"ok": True})
 
         elif self.path == "/recording-start":
-            current_typed_text = ""  # Reset dictation tracking for new session
+            with _text_lock:
+                current_typed_text = ""  # Reset dictation tracking for new session
+                _last_text_seq = 0  # Reset sequence for new recording session
+                _dictation_final_text = ""  # Reset accumulated text
+            # Capture TTY for overlay writes
+            idx = state["current_index"]
+            if 0 <= idx < len(state["window_ids"]):
+                _dictation_tty = get_session_tty(state["window_ids"][idx])
+            else:
+                _dictation_tty = None
+            # Clear debug log for fresh session
+            try:
+                with open(DEBUG_LOG_FILE, "w") as f:
+                    f.write(f"[{time.strftime('%H:%M:%S')}] === NEW RECORDING SESSION ===\n")
+            except Exception:
+                pass
             set_recording_color(on=True)
-            print("  Recording started — background red, dictation state reset")
+            print(f"  Recording started — overlay tty={_dictation_tty}")
             self.send_json({"ok": True})
 
         elif self.path == "/recording-stop":
+            # Clear overlay and commit final text to terminal
+            clear_dictation_overlay(_dictation_tty)
             set_recording_color(on=False)
-            print("  Recording stopped — background restored")
+            print(f"  Recording stopped — overlay cleared")
+            self.send_json({"ok": True})
+
+        elif self.path == "/focus-push":
+            # Called by focus_tab_color.py when a window gains focus on Mac
+            window_id = body.get("window_id", "")
+            if window_id:
+                for i, wid in enumerate(state["window_ids"]):
+                    if str(wid) == str(window_id) and i != state["current_index"]:
+                        print(f"  [focus-push] Mac focus -> [{i}] id={window_id}")
+                        state["current_index"] = i
+                        _notify_focus_change(str(window_id))
+                        break
+            self.send_json({"ok": True})
+
+        elif self.path == "/debug-log":
+            msg = body.get("message", "")
+            if msg:
+                timestamp = time.strftime("%H:%M:%S", time.localtime())
+                ms = int((time.time() % 1) * 1000)
+                line = f"[{timestamp}.{ms:03d}] {msg}\n"
+                try:
+                    with open(DEBUG_LOG_FILE, "a") as f:
+                        f.write(line)
+                except Exception as e:
+                    print(f"  [debug-log] write error: {e}")
             self.send_json({"ok": True})
 
         elif self.path == "/refresh":
@@ -904,7 +1171,7 @@ def main():
     cache_thread = threading.Thread(target=_refresh_cache_loop, daemon=True)
     cache_thread.start()
 
-    server = HTTPServer(('0.0.0.0', PORT), DispatchHandler)
+    server = ThreadingHTTPServer(('0.0.0.0', PORT), DispatchHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

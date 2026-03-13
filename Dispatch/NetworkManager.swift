@@ -15,9 +15,24 @@ final class NetworkManager {
     var totalWindows: Int = 0
     var activeWindowName: String = ""
 
+    /// When true, polling is paused — no data comes back from the server.
+    /// Commands (cycle, dictation, etc.) still send outbound.
+    var debugMutePolling: Bool = true
+
+    /// When true, cycle commands do NOT optimistically update activeIndex.
+    /// The phone waits for the server to confirm the change via poll/response.
+    var debugNoOptimistic: Bool = true
+
+    /// When true, logs every activeIndex mutation with source, seq, and timestamps.
+    var debugBounceLog: Bool = false
+
     // Debug logging (visible in app)
     private(set) var debugLogEntries: [String] = []
     private let maxLogEntries = 30
+
+    // Bounce-specific debug log (visible in app when debugBounceLog is on)
+    private(set) var bounceLogEntries: [String] = []
+    private let maxBounceLogEntries = 50
 
     private func log(_ msg: String) {
         NSLog("[NET] %@", msg)
@@ -28,12 +43,27 @@ final class NetworkManager {
         }
     }
 
+    private func bounceLog(_ source: String, _ msg: String) {
+        guard debugBounceLog else { return }
+        let t = String(format: "%.3f", CFAbsoluteTimeGetCurrent().truncatingRemainder(dividingBy: 1000))
+        let entry = "[\(t)] [\(source)] \(msg)"
+        NSLog("[BOUNCE] %@", entry)
+        bounceLogEntries.append(entry)
+        if bounceLogEntries.count > maxBounceLogEntries {
+            bounceLogEntries.removeFirst(bounceLogEntries.count - maxBounceLogEntries)
+        }
+    }
+
+    func clearBounceLog() {
+        bounceLogEntries.removeAll()
+    }
+
     // MARK: - Configuration
 
     #if targetEnvironment(simulator)
     private var serverURL: String = "http://localhost:9876"
     #else
-    private var serverURL: String = "http://192.168.1.78:9876"
+    private var serverURL: String = "http://192.168.1.80:9876"
     #endif
     private var pollTimer: Timer?
     /// Number of consecutive poll failures. `isConnected` is only set to false
@@ -51,10 +81,16 @@ final class NetworkManager {
     private var consecutiveIDChangePolls: Int = 0
     private let idChangeThreshold: Int = 2
     private var pendingIDChangeLayout: [WindowLayout]?
-    /// When set, polls skip activeIndex updates until the server confirms the expected window.
-    /// Cleared when the poll returns a matching active_window_id, on error, or after a 5s timeout.
-    private var expectedActiveWindowID: String?
-    private var expectedActiveWindowTimer: DispatchWorkItem?
+
+    /// Monotonic sequence number stamped on each cycle command.
+    /// Poll responses with `last_cycle_seq` < this are stale and must not update activeIndex.
+    private var cycleSequence: Int = 0
+
+    // MARK: - Dictation FIFO Queue
+    // Serializes /stream-text requests so only one is in-flight at a time.
+    // Other endpoints (cycle, escape, etc.) remain fire-and-forget.
+    private var dictationQueue: [() async -> Void] = []
+    private var dictationInFlight: Bool = false
 
     /// Extract host:port from serverURL for display/editing
     var currentHost: String {
@@ -173,9 +209,32 @@ final class NetworkManager {
     func startPolling() {
         stopPolling()
         guard !serverURL.isEmpty else { return }
+        fetchInitialStatus()
         pollStatus()
         pollTimer = Timer.scheduledTimer(
-            withTimeInterval: 0.5,
+            withTimeInterval: 2.0,
+            repeats: true
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.pollStatus()
+            }
+        }
+        startWatchLoop()
+    }
+
+    func stopPolling() {
+        pollTimer?.invalidate()
+        pollTimer = nil
+        stopWatchLoop()
+    }
+
+    /// Reset the poll countdown so the next poll fires 2s from now.
+    /// Only resets the poll timer — does NOT touch the watch loop.
+    private func resetPollTimer() {
+        guard pollTimer != nil else { return }
+        pollTimer?.invalidate()
+        pollTimer = Timer.scheduledTimer(
+            withTimeInterval: 2.0,
             repeats: true
         ) { [weak self] _ in
             Task { @MainActor in
@@ -184,16 +243,29 @@ final class NetworkManager {
         }
     }
 
-    func stopPolling() {
-        pollTimer?.invalidate()
-        pollTimer = nil
-    }
-
     // MARK: - Status Polling
 
-    private func pollStatus() {
+    /// One-shot fetch on connect — bypasses debugMutePolling to populate layout + set isConnected.
+    private func fetchInitialStatus() {
         guard !serverURL.isEmpty,
               let url = URL(string: "\(serverURL)/status") else { return }
+        Task {
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                guard let httpResponse = response as? HTTPURLResponse,
+                      httpResponse.statusCode == 200 else { return }
+                parseStatusResponse(data, updateActiveIndex: true, source: "INIT")
+                isConnected = true
+            } catch {}
+        }
+    }
+
+    private func pollStatus() {
+        guard !debugMutePolling,
+              !serverURL.isEmpty,
+              let url = URL(string: "\(serverURL)/status") else { return }
+
+        bounceLog("POLL", "firing (activeIndex=\(activeIndex) seq=\(cycleSequence))")
 
         Task {
             do {
@@ -208,19 +280,7 @@ final class NetworkManager {
                 }
 
                 consecutivePollFailures = 0
-
-                if let expected = expectedActiveWindowID {
-                    let pollID = peekActiveWindowID(data)
-                    if pollID == expected {
-                        log("POLL confirmed guard=\(expected)")
-                        clearExpectedGuard()
-                        parseStatusResponse(data, updateActiveIndex: true)
-                    } else {
-                        parseStatusResponse(data, updateActiveIndex: false)
-                    }
-                } else {
-                    parseStatusResponse(data, updateActiveIndex: true)
-                }
+                parseStatusResponse(data, updateActiveIndex: true, source: "POLL")
                 isConnected = true
             } catch {
                 consecutivePollFailures += 1
@@ -231,38 +291,14 @@ final class NetworkManager {
         }
     }
 
-    private func peekActiveWindowID(_ data: Data) -> String? {
-        struct Peek: Decodable { let active_window_id: String? }
-        return try? JSONDecoder().decode(Peek.self, from: data).active_window_id
-    }
-
-    private func setExpectedGuard(_ windowID: String) {
-        expectedActiveWindowTimer?.cancel()
-        expectedActiveWindowID = windowID
-
-        let timeout = DispatchWorkItem { [weak self] in
-            Task { @MainActor in
-                self?.log("GUARD TIMEOUT — reverting to server state")
-                self?.clearExpectedGuard()
-            }
-        }
-        expectedActiveWindowTimer = timeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: timeout)
-    }
-
-    private func clearExpectedGuard() {
-        expectedActiveWindowTimer?.cancel()
-        expectedActiveWindowTimer = nil
-        expectedActiveWindowID = nil
-    }
-
-    private func parseStatusResponse(_ data: Data, updateActiveIndex: Bool = true) {
+    private func parseStatusResponse(_ data: Data, updateActiveIndex: Bool = true, source: String = "?") {
         struct StatusResponse: Decodable {
             let screen: ScreenSize?
             let layout: [WindowLayout]?
             let active_window_id: String?
             let total: Int?
             let active_window: String?
+            let last_cycle_seq: Int?
 
             struct ScreenSize: Decodable {
                 let width: CGFloat
@@ -329,11 +365,36 @@ final class NetworkManager {
                     totalWindows = layout.count
                 }
 
-                if updateActiveIndex,
-                   let activeID = status.active_window_id,
-                   let matchedIndex = layout.firstIndex(where: { $0.id == activeID }) {
+            }
+
+            // Active index update — outside the layout block so /cycle responses
+            // (which have no layout) can still update activeIndex.
+            if updateActiveIndex,
+               let activeID = status.active_window_id,
+               let matchedIndex = windowLayouts.firstIndex(where: { $0.id == activeID }) {
+                let serverSeq = status.last_cycle_seq ?? 0
+                if debugNoOptimistic {
+                    // No optimistic index to protect — accept server's word
+                    let oldIndex = activeIndex
                     activeIndex = matchedIndex
+                    resetPollTimer()
+                    bounceLog(source, "ACCEPT idx \(oldIndex)→\(matchedIndex) srvSeq=\(serverSeq) phoneSeq=\(cycleSequence) id=\(activeID.prefix(8))")
+                } else {
+                    // Server only confirms seq after AppleScript activation completes.
+                    // Polls before that carry a stale seq and get rejected here,
+                    // protecting the phone's optimistic activeIndex from bounce-back.
+                    if serverSeq >= cycleSequence {
+                        let oldIndex = activeIndex
+                        activeIndex = matchedIndex
+                        resetPollTimer()
+                        bounceLog(source, "ACCEPT idx \(oldIndex)→\(matchedIndex) srvSeq=\(serverSeq) phoneSeq=\(cycleSequence)")
+                    } else {
+                        bounceLog(source, "REJECT idx=\(activeIndex) matched=\(matchedIndex) srvSeq=\(serverSeq) < phoneSeq=\(cycleSequence)")
+                    }
                 }
+            } else if updateActiveIndex {
+                let activeID = status.active_window_id ?? "nil"
+                bounceLog(source, "NO-MATCH id=\(activeID.prefix(8)) layouts=\(windowLayouts.count)")
             }
             if let name = status.active_window {
                 activeWindowName = name
@@ -356,43 +417,217 @@ final class NetworkManager {
         return false
     }
 
+    // MARK: - Focus Watch (Long-Poll)
+
+    private var watchTask: Task<Void, Never>?
+
+    /// Start a persistent long-poll loop that listens for Mac-side focus changes.
+    func startWatchLoop() {
+        stopWatchLoop()
+        watchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, !self.serverURL.isEmpty,
+                      let url = URL(string: "\(self.serverURL)/watch") else {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    continue
+                }
+
+                do {
+                    // 35s timeout — slightly longer than server's 30s hold
+                    var request = URLRequest(url: url)
+                    request.timeoutInterval = 35
+
+                    let (data, response) = try await URLSession.shared.data(for: request)
+                    guard let httpResponse = response as? HTTPURLResponse,
+                          httpResponse.statusCode == 200 else { continue }
+
+                    // Server responded — we're connected
+                    if !self.isConnected {
+                        self.isConnected = true
+                    }
+
+                    struct WatchResponse: Decodable {
+                        let changed: Bool
+                        let current_index: Int?
+                        let active_window_id: String?
+                        let active_window: String?
+                        let layout: [WindowLayout]?
+                        let screen: ScreenSize?
+                    }
+                    struct ScreenSize: Decodable {
+                        let width: CGFloat
+                        let height: CGFloat
+                    }
+
+                    let watch = try JSONDecoder().decode(WatchResponse.self, from: data)
+                    if watch.changed {
+                        // Update layout if provided (move/resize)
+                        if let layout = watch.layout, !layout.isEmpty {
+                            self.windowLayouts = layout
+                        }
+                        if let screen = watch.screen {
+                            self.screenSize = CGSize(width: screen.width, height: screen.height)
+                        }
+                        // Update focus
+                        if let activeID = watch.active_window_id,
+                           let matchedIndex = self.windowLayouts.firstIndex(where: { $0.id == activeID }) {
+                            self.activeIndex = matchedIndex
+                            if let name = watch.active_window {
+                                self.activeWindowName = name
+                            }
+                        }
+                        self.bounceLog("WATCH", "state push idx→\(self.activeIndex)")
+                    }
+                } catch {
+                    // Connection error or timeout — brief delay then retry
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                }
+            }
+        }
+    }
+
+    func stopWatchLoop() {
+        watchTask?.cancel()
+        watchTask = nil
+    }
+
     // MARK: - Actions
 
     func cycleNext() {
-        if !windowLayouts.isEmpty {
+        cycleSequence += 1
+        if !debugNoOptimistic && !windowLayouts.isEmpty {
+            let oldIndex = activeIndex
             let newIndex = (activeIndex + 1) % windowLayouts.count
             activeIndex = newIndex
-            setExpectedGuard(windowLayouts[newIndex].id)
-            log("cycleNext → [\(newIndex)] guard=\(windowLayouts[newIndex].id)")
+            log("cycleNext → [\(newIndex)] seq=\(cycleSequence)")
+            bounceLog("OPTIMISTIC", "cycleNext \(oldIndex)→\(newIndex) seq=\(cycleSequence)")
+        } else {
+            log("cycleNext (no-opt) seq=\(cycleSequence)")
+            bounceLog("CMD", "cycleNext sent seq=\(cycleSequence) activeIndex=\(activeIndex)")
         }
-        postJSONWithStatus(endpoint: "/cycle", body: ["direction": "next"])
+        postJSONWithStatus(endpoint: "/cycle", body: ["direction": "next", "seq": cycleSequence])
     }
 
     func cyclePrevious() {
-        if !windowLayouts.isEmpty {
+        cycleSequence += 1
+        if !debugNoOptimistic && !windowLayouts.isEmpty {
+            let oldIndex = activeIndex
             let newIndex = (activeIndex - 1 + windowLayouts.count) % windowLayouts.count
             activeIndex = newIndex
-            setExpectedGuard(windowLayouts[newIndex].id)
-            log("cyclePrev → [\(newIndex)] guard=\(windowLayouts[newIndex].id)")
+            log("cyclePrev → [\(newIndex)] seq=\(cycleSequence)")
+            bounceLog("OPTIMISTIC", "cyclePrev \(oldIndex)→\(newIndex) seq=\(cycleSequence)")
+        } else {
+            log("cyclePrev (no-opt) seq=\(cycleSequence)")
+            bounceLog("CMD", "cyclePrev sent seq=\(cycleSequence) activeIndex=\(activeIndex)")
         }
-        postJSONWithStatus(endpoint: "/cycle", body: ["direction": "prev"])
+        postJSONWithStatus(endpoint: "/cycle", body: ["direction": "prev", "seq": cycleSequence])
     }
 
     func sendDoubleEscape() {
         postJSON(endpoint: "/escape", body: [:])
     }
 
-    func streamText(_ text: String, isFinal: Bool, previousLength: Int) {
+    func streamText(_ text: String, isFinal: Bool, previousLength: Int, sequence: Int) {
         let body: [String: Any] = [
             "text": text,
             "is_final": isFinal,
             "previous_length": previousLength,
+            "seq": sequence,
         ]
-        postJSON(endpoint: "/stream-text", body: body)
+        // Drop any pending (not in-flight) items — only latest text matters
+        dictationQueue.removeAll()
+        // Enqueue and drain — only one /stream-text in-flight at a time
+        dictationQueue.append { [weak self] in
+            guard let self,
+                  !self.serverURL.isEmpty,
+                  let url = URL(string: "\(self.serverURL)/stream-text") else { return }
+
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            } catch { return }
+
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if let httpResponse = response as? HTTPURLResponse,
+                   httpResponse.statusCode != 200 {
+                    print("[NetworkManager] /stream-text returned \(httpResponse.statusCode)")
+                }
+            } catch {
+                print("[NetworkManager] /stream-text failed: \(error)")
+            }
+        }
+        drainDictationQueue()
+    }
+
+    private func drainDictationQueue() {
+        guard !dictationInFlight, !dictationQueue.isEmpty else { return }
+        dictationInFlight = true
+        let work = dictationQueue.removeFirst()
+        Task {
+            await work()
+            dictationInFlight = false
+            drainDictationQueue()
+        }
     }
 
     func sendEnter() {
         postJSON(endpoint: "/type", body: ["text": "", "enter": true])
+    }
+
+    /// Send Enter AFTER all pending dictation requests complete, then notify recording stop.
+    /// Prevents the race where Enter arrives at the server before the last stream-text.
+    func sendEnterAfterDictation() {
+        // Enqueue Enter
+        dictationQueue.append { [weak self] in
+            guard let self,
+                  !self.serverURL.isEmpty,
+                  let url = URL(string: "\(self.serverURL)/type") else { return }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let body: [String: Any] = ["text": "", "enter": true]
+            do {
+                request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            } catch { return }
+            do {
+                let (_, _) = try await URLSession.shared.data(for: request)
+            } catch {
+                print("[NetworkManager] /type (enter after dictation) failed: \(error)")
+            }
+        }
+        // Enqueue recording-stop after Enter
+        dictationQueue.append { [weak self] in
+            guard let self,
+                  !self.serverURL.isEmpty,
+                  let url = URL(string: "\(self.serverURL)/recording-stop") else { return }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try? JSONSerialization.data(withJSONObject: [:] as [String: Any])
+            do {
+                let (_, _) = try await URLSession.shared.data(for: request)
+            } catch {
+                print("[NetworkManager] /recording-stop (after dictation) failed: \(error)")
+            }
+        }
+        drainDictationQueue()
+    }
+
+    func notifyRecordingStart() {
+        postJSON(endpoint: "/recording-start", body: [:])
+    }
+
+    func sendDebugLog(_ message: String) {
+        postJSON(endpoint: "/debug-log", body: ["message": message])
+    }
+
+    func notifyRecordingStop() {
+        // Clear stale dictation queue items from the ended session
+        dictationQueue.removeAll()
+        postJSON(endpoint: "/recording-stop", body: [:])
     }
 
     // MARK: - HTTP Helpers
@@ -420,15 +655,17 @@ final class NetworkManager {
                 {
                     let bodyStr = String(data: data, encoding: .utf8) ?? "?"
                     log("\(endpoint) OK: \(bodyStr.prefix(120))")
-                    parseStatusResponse(data, updateActiveIndex: false)
+                    bounceLog("CYCLE-RESP", "received \(bodyStr.prefix(200))")
+                    // In optimistic mode, don't update activeIndex from cycle response —
+                    // the optimistic update already set it. In no-optimistic mode,
+                    // accept the server's activeIndex from the cycle response.
+                    parseStatusResponse(data, updateActiveIndex: debugNoOptimistic, source: "CYCLE-RESP")
                 } else {
                     let code = (response as? HTTPURLResponse)?.statusCode ?? -1
                     log("\(endpoint) HTTP \(code)")
-                    clearExpectedGuard()
                 }
             } catch {
                 log("\(endpoint) FAILED: \(error.localizedDescription)")
-                clearExpectedGuard()
             }
         }
     }

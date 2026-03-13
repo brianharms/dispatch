@@ -2,6 +2,42 @@
 
 ---
 
+## Session 7 — 2026-03-13 12:24 — /watch Long-Poll Fix + Visual Explainer
+
+### Goal
+Diagnose and fix why the `/watch` long-poll push mechanism wasn't delivering focus/layout changes to the phone. Then generate a visual explainer of the project architecture.
+
+### Accomplished
+- **Root cause found and fixed**: `resetPollTimer()` in NetworkManager.swift was calling `stopPolling()`, which killed the watch loop permanently. Every accepted status response (including initial `fetchInitialStatus()`) murdered the push channel. Fixed by replacing `stopPolling()` with just `pollTimer?.invalidate()` — only resets the timer countdown, leaves watch loop alive.
+- **Confirmed fix working on device** — user verified `/watch` push updates are reaching the phone
+- **Added debug print** to server `/watch` handler (line ~855) logging push events with focus/layout flags
+- **Generated visual explainer** (`/tmp/explain-dispatch-project.html`) — 3 views (Signal Flow, Sequence Diagrams, System Map), 12 design styles, light/dark toggle
+
+### In Progress / Incomplete
+- **`/focus-push` window ID format mismatch**: iTerm2 Python API sends IDs like "w0", server stores AppleScript numeric IDs like "65843". Non-critical — server detects focus changes independently via `build_status()` every 0.5s.
+
+### Key Decisions
+- Surgical fix: only changed `resetPollTimer()` behavior, didn't restructure polling/watch architecture
+- `/focus-push` ID mismatch left unfixed — secondary path, server's own 0.5s cache loop handles focus detection
+
+### Files Changed
+- `Dispatch/NetworkManager.swift` — `resetPollTimer()` no longer kills watch loop (the critical fix)
+- `server/dispatch_server.py` — debug print in `/watch` handler for push events
+
+### Known Issues
+- `/focus-push` ID format mismatch (iTerm2 Python API "w0" vs AppleScript "65843") — non-critical
+- `debugMutePolling = true` and `debugNoOptimistic = true` still set in NetworkManager (from previous debug session)
+
+### Running Services
+- `dispatch_server.py` running (PID 8012) on port 9876
+
+### Next Steps
+1. Clean up debug flags (`debugMutePolling`, `debugNoOptimistic`) in NetworkManager.swift if no longer needed
+2. Optionally fix `/focus-push` ID format mismatch for faster focus detection
+3. Continue with plan items: burst cap for volume button hold, other UX improvements
+
+---
+
 ## Session 6 — 2026-03-11 00:00 — Watch App Consolidation + UX Overhaul
 
 ### Goal
