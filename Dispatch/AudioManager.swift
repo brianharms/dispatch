@@ -242,6 +242,7 @@ final class AudioManager {
 
     private func sendToServer(_ fullText: String) {
         guard isRecording else { return }
+        guard fullText != lastSentText else { return }
         partialSequence += 1
         let seq = partialSequence
         let prevLen = lastSentText.count

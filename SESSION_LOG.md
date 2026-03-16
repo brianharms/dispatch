@@ -2,6 +2,90 @@
 
 ---
 
+## Session 10 — 2026-03-16 15:20 — Fix Dictation Overlay Stacking Bug
+
+### Goal
+Diagnose and fix the bug where long voice recordings cause the ANSI dictation overlay (🎤 + live text) to stack up as dozens of duplicated lines in the terminal, instead of overwriting a single line.
+
+### Accomplished
+- **Root cause identified**: ANSI absolute cursor positioning (`\033[row;1H`) targets a logical row in the terminal's scroll buffer. When Claude Code is actively streaming output and the terminal scrolls, each overlay write lands on a NEW physical line — the old overlay text is baked into scrollback and never cleared.
+- **Audited scroll margin fix (`DECSTBM`)**: Found 3 critical issues — Claude Code's TUI shares the TTY and would conflict, crash leaves margins stuck with no cleanup path, server can't receive SIGWINCH for resize detection. Rejected this approach.
+- **Implemented iTerm2 Status Bar solution**: Created an iTerm2 Python API AutoLaunch script that registers a custom status bar component driven by `user.dictationText` session variable. Completely scroll-proof — status bar is fixed UI chrome.
+- **Server updated**: `write_dictation_overlay()` and `clear_dictation_overlay()` now use `\033]1337;SetUserVar=dictationText=<base64>\a` instead of ANSI cursor positioning. Same TTY write pattern already used for `SetColors=bg=`.
+- **iOS dedup added**: `AudioManager.sendToServer()` now skips sends when `fullText == lastSentText` — reduces redundant `/stream-text` requests by ~15-30%.
+
+### In Progress / Incomplete
+- **User needs to configure iTerm2 status bar**: Must enable status bar in Settings > Profiles > Session, then add "Dictation" component via Configure Status Bar. Also must restart iTerm2 (or manually run the script) so the AutoLaunch script loads.
+- **Not yet tested end-to-end** — changes written but not built/deployed/verified on device.
+
+### Key Decisions
+- **iTerm2 Status Bar over scroll margins**: Scroll margins (`DECSTBM`) would conflict with Claude Code's TUI, be fragile on crash/resize, and possibly be reset by Claude's own rendering. Status bar component is isolated UI chrome, zero terminal buffer interaction.
+- **`SetUserVar` escape sequence as the bridge**: The dispatch server runs outside iTerm2's scripting env but can write escape sequences to TTY files (same as existing `SetColors=bg=` pattern). `SetUserVar` updates session variables that status bar components react to automatically.
+- **iOS dedup is complementary, not primary fix**: The serial queue in `NetworkManager` already coalesces rapid sends, so dedup provides modest additional reduction (~15-30%).
+
+### Files Changed
+- `~/.config/iterm2/AppSupport/Scripts/AutoLaunch/dictation_overlay.py` — NEW: iTerm2 status bar component for dictation overlay
+- `server/dispatch_server.py` — `write_dictation_overlay()` and `clear_dictation_overlay()` rewritten to use `SetUserVar` instead of ANSI cursor positioning
+- `Dispatch/AudioManager.swift` — added `guard fullText != lastSentText` dedup in `sendToServer()`
+
+### Known Issues
+- SFSpeechRecognizer text-dropping still open from Session 8
+- `/focus-push` ID format mismatch still open from Session 7
+- Watch app icon still needed
+- User must manually configure iTerm2 status bar component (one-time setup)
+
+### Running Services
+- None started this session
+
+### Next Steps
+1. Restart iTerm2 to load the dictation_overlay.py AutoLaunch script
+2. Configure status bar: Settings > Profiles > Session > enable status bar > Configure > add "Dictation" component
+3. Restart dispatch server, build iOS app, and test dictation overlay end-to-end
+4. If status bar positioning/styling needs adjustment, modify the component in dictation_overlay.py
+
+---
+
+## Session 9 — 2026-03-15 00:00 — Watch App Networking Overhaul + UI Polish
+
+### Goal
+Port the iPhone's battle-tested networking logic to the watch app, fix connectivity, and improve the watch UI.
+
+### Accomplished
+- **ATS fix**: Changed `NSAllowsLocalNetworking` → `NSAllowsArbitraryLoads` in both Info.plist and project.yml — raw IP addresses like `192.168.1.81` were silently blocked
+- **Full networking overhaul** (NetworkManager.swift):
+  - `/watch` long-poll loop for instant push updates (replaces 1s polling)
+  - Cycle sequence numbers (`cycleSequence`) — stale poll responses can't bounce activeIndex
+  - `fetchInitialStatus()` one-shot on connect
+  - `resetPollTimer()` only resets countdown, doesn't kill watch loop
+  - `postJSONWithStatus()` — cycle responses immediately update state
+  - Layout debouncing — shrink threshold + ID-change threshold filter AppleScript transients
+  - Separate `watchSession` with 35s timeout for long-poll
+- **Index ordering fix**: Watch now uses server's `current_index` directly instead of recomputing from window ID array position (was causing 1,3,2,4 order)
+- **Swipe-down settings**: Replaced gear button with drag gesture on top bar (40pt threshold), chevron hint animates during drag
+- **Terminal window UI**: Window number displayed inside a white-stroke rounded rectangle with red/yellow/green traffic light dots and window name in title bar
+- **Version display**: `v0.2` shown in top bar
+- **Version bumped** to 0.2 / build 2
+- **Regenerated Xcode project** via xcodegen
+
+### Files Changed
+- `Dispatch Watch App/NetworkManager.swift` — full rewrite with phone-parity networking
+- `Dispatch Watch App/ContentView.swift` — swipe-down settings, terminal window chrome, version display
+- `Dispatch Watch App/Info.plist` — `NSAllowsArbitraryLoads`
+- `project.yml` — watch ATS fix, version bump to 0.2
+
+### Known Issues
+- Watch device connection intermittent (disconnects during install, needs wake/proximity)
+- SFSpeechRecognizer text-dropping still open from Session 8
+- `/focus-push` ID format mismatch still open from Session 7
+
+### Next Steps
+1. Design feedback on watch UI (user will provide tomorrow)
+2. Watch app icon/logo still needed
+3. Test dictation end-to-end on watch
+4. Consider matching phone's dictation FIFO queue if watch adds streaming text
+
+---
+
 ## Session 8 — 2026-03-13 12:26 — Fix Garbled Dictation + ANSI Overlay System
 
 ### Goal

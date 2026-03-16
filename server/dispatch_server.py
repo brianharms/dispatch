@@ -317,34 +317,19 @@ def get_tty_size(tty_path):
 
 
 def write_dictation_overlay(tty_path, text):
-    """Show live dictation text as a full-width bar at the bottom of the terminal.
+    """Show live dictation text in iTerm2's status bar via SetUserVar.
 
-    Uses save/restore cursor so the shell prompt is untouched.
-    The text never enters the shell input buffer.
+    Sets session variable `user.dictationText` which the
+    dictation_overlay.py status bar component reads.
+    Scroll-proof — status bar is fixed UI chrome.
     """
     if not tty_path:
         return
     try:
-        rows, cols = get_tty_size(tty_path)
+        import base64
         safe_text = text.replace('\n', ' ')
-        # Emoji 🎤 is double-width in terminal but 1 char in Python.
-        # Reserve cols-1 display columns to prevent wrap onto a 2nd line.
-        label = f" \U0001f3a4  {safe_text} "
-        display_width = len(label) + 1  # +1 for emoji extra column
-        pad_needed = max(0, cols - 1 - display_width)
-        padded = label + " " * pad_needed
-        # Position at second-to-last row (above the prompt)
-        target_row = max(1, rows - 1)
-        seq = (
-            "\033[s"                # save cursor
-            f"\033[{target_row};1H" # move to target row, col 1
-            "\033[2K"               # clear line
-            "\033[48;2;0;0;0m"      # solid black background (RGB)
-            "\033[38;2;200;200;200m" # light gray text
-            f"{padded}"
-            "\033[0m"               # reset all attributes
-            "\033[u"                # restore cursor
-        )
+        encoded = base64.b64encode(safe_text.encode("utf-8")).decode("ascii")
+        seq = f"\033]1337;SetUserVar=dictationText={encoded}\a"
         with open(tty_path, "w") as f:
             f.write(seq)
     except Exception as e:
@@ -352,18 +337,13 @@ def write_dictation_overlay(tty_path, text):
 
 
 def clear_dictation_overlay(tty_path):
-    """Remove the dictation overlay line from the terminal."""
+    """Clear the dictation status bar text by setting the variable to empty."""
     if not tty_path:
         return
     try:
-        rows, _ = get_tty_size(tty_path)
-        target_row = max(1, rows - 1)
-        seq = (
-            "\033[s"                # save cursor
-            f"\033[{target_row};1H" # move to target row
-            "\033[2K"               # clear line
-            "\033[u"                # restore cursor
-        )
+        import base64
+        encoded = base64.b64encode(b"").decode("ascii")
+        seq = f"\033]1337;SetUserVar=dictationText={encoded}\a"
         with open(tty_path, "w") as f:
             f.write(seq)
     except Exception as e:
