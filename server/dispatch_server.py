@@ -15,6 +15,7 @@ from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 TRANSCRIBE_BIN = os.path.join(SCRIPT_DIR, "transcribe")
+DICTATION_HUD_BIN = os.path.join(SCRIPT_DIR, "dictation_hud")
 DEBUG_LOG_FILE = os.path.join(SCRIPT_DIR, "dictation_debug.log")
 
 PORT = 9876
@@ -51,6 +52,9 @@ _text_lock = threading.Lock()
 
 # Recording state — tracks whether we're in a recording session
 _recording_active = False
+
+# Dictation HUD process
+_hud_process = None
 
 # Cached status response — updated by background thread, served instantly
 _cached_status = {}
@@ -348,6 +352,51 @@ def clear_dictation_overlay(tty_path):
             f.write(seq)
     except Exception as e:
         print(f"  [overlay] Failed to clear: {e}")
+
+
+def show_dictation_hud():
+    """Spawn the floating HUD window for dictation."""
+    global _hud_process
+    close_dictation_hud()
+    try:
+        _hud_process = subprocess.Popen(
+            [DICTATION_HUD_BIN],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print(f"  [hud] Spawned PID {_hud_process.pid}")
+    except Exception as e:
+        print(f"  [hud] Failed to spawn: {e}")
+        _hud_process = None
+
+
+def update_dictation_hud(text):
+    """Send updated text to the HUD via stdin."""
+    global _hud_process
+    if _hud_process and _hud_process.poll() is None:
+        try:
+            line = text.replace('\n', ' ') + '\n'
+            _hud_process.stdin.write(line.encode('utf-8'))
+            _hud_process.stdin.flush()
+        except (BrokenPipeError, OSError) as e:
+            print(f"  [hud] Write failed: {e}")
+            _hud_process = None
+
+
+def close_dictation_hud():
+    """Close the HUD by closing stdin (triggers fade-out)."""
+    global _hud_process
+    if _hud_process:
+        try:
+            _hud_process.stdin.close()
+        except Exception:
+            pass
+        try:
+            _hud_process.wait(timeout=2)
+        except Exception:
+            _hud_process.kill()
+        _hud_process = None
 
 
 def type_text_iterm(text, enter=False):
@@ -717,6 +766,25 @@ def build_status():
         total = len(state["window_ids"])
         idx = state["current_index"]
         name = get_window_name(idx) if total > 0 else "No Windows"
+    elif layout_windows and state["window_ids"]:
+        # Re-sort locked windows by current x-position (handles rearranges)
+        id_to_pos = {str(w["id"]): (w["x"], w["y"]) for w in layout_windows}
+        current_id = str(state["window_ids"][idx]) if idx < len(state["window_ids"]) else None
+        paired = list(zip(state["window_ids"], state["window_names"]))
+        paired.sort(key=lambda p: id_to_pos.get(str(p[0]), (0, 0)))
+        new_ids = [p[0] for p in paired]
+        new_names = [p[1] for p in paired]
+        if new_ids != state["window_ids"]:
+            state["window_ids"] = new_ids
+            state["window_names"] = new_names
+            # Preserve which window is active after re-sort
+            if current_id:
+                for i, wid in enumerate(new_ids):
+                    if str(wid) == current_id:
+                        state["current_index"] = i
+                        idx = i
+                        break
+            print(f"  [re-sort] Window order updated to match spatial layout")
 
     # Detect if the user changed the active window on the Mac side.
     # Skip while a phone-initiated cycle is in-flight (AppleScript hasn't
@@ -1001,6 +1069,7 @@ class DispatchHandler(BaseHTTPRequestHandler):
                 # Update overlay — no typing into terminal during dictation
                 _dictation_final_text = text
                 write_dictation_overlay(_dictation_tty, text)
+                update_dictation_hud(text)
                 print(f"  Overlay: {repr(text[:60])}{'...' if len(text) > 60 else ''} seq={seq}")
 
             self.send_json({"ok": True, "is_final": is_final})
@@ -1026,6 +1095,7 @@ class DispatchHandler(BaseHTTPRequestHandler):
 
         elif self.path == "/escape":
             clear_dictation_overlay(_dictation_tty)
+            close_dictation_hud()
             send_escape()
             with _text_lock:
                 current_typed_text = ""
@@ -1051,12 +1121,14 @@ class DispatchHandler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             set_recording_color(on=True)
+            show_dictation_hud()
             print(f"  Recording started — overlay tty={_dictation_tty}")
             self.send_json({"ok": True})
 
         elif self.path == "/recording-stop":
             # Clear overlay and commit final text to terminal
             clear_dictation_overlay(_dictation_tty)
+            close_dictation_hud()
             set_recording_color(on=False)
             print(f"  Recording stopped — overlay cleared")
             self.send_json({"ok": True})

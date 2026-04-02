@@ -2,6 +2,60 @@
 
 ---
 
+## Session 11 — 2026-04-01 18:05 — Floating Dictation HUD + Window Re-Sort
+
+### Goal
+Test dispatch app connectivity, improve dictation text visibility, and fix window cycling order after rearranging with Arrange.
+
+### Accomplished
+- **Server connectivity fix**: Server was binding to `localhost` only despite `0.0.0.0` in code — restarting while macOS firewall was configured properly fixed it. Python is in the firewall allow list.
+- **iTerm2 status bar setup**: Guided user through adding the "Dictation" status bar component (from Session 10's AutoLaunch script)
+- **Floating dictation HUD** (`server/dictation_hud.swift`): Built a native macOS floating panel that shows live dictation text:
+  - Dark translucent blur background (`NSVisualEffectView`, `.hudWindow` material, 0.9 alpha)
+  - Continuous corner radius 26pt
+  - Black text, 31pt SF font
+  - Max width 40% of screen before wrapping
+  - Draggable — click and drag to reposition
+  - Position persists to `~/.config/dispatch/hud_position` across sessions
+  - Fade in/out animations
+  - Spawned by server on recording start, receives text via stdin pipe, closes on recording stop
+  - No dock icon (`.accessory` activation policy)
+- **Window re-sort fix**: `build_status()` now re-sorts locked window order by current x-position on every status poll (every 0.5s). Previously, rearranging windows with Arrange didn't update cycle order because `lock_windows()` only ran on window count changes.
+- **Status bar truncation**: Added 80-char tail truncation to `dictation_overlay.py` (largely superseded by HUD)
+
+### In Progress / Incomplete
+- Status bar component still active alongside HUD — could be removed if HUD is the preferred approach
+- HUD text size iterated through several values (16→17→21→32→26→31pt), settled on 31pt
+
+### Key Decisions
+- Floating HUD over status bar: user wanted to see ALL text, not truncated. HUD can wrap and grow.
+- Black text on translucent background chosen over white — more legible
+- Position persistence via simple file (`x,y` coordinates) rather than UserDefaults — binary has no bundle ID
+- Window re-sort runs in `build_status()` (hot path, every 0.5s) rather than requiring manual refresh
+
+### Files Changed
+- `server/dictation_hud.swift` — NEW: floating macOS HUD binary source
+- `server/dictation_hud` — NEW: compiled binary
+- `server/dispatch_server.py` — HUD lifecycle management (`show_dictation_hud`, `update_dictation_hud`, `close_dictation_hud`), window re-sort in `build_status()`
+- `~/.config/iterm2/AppSupport/Scripts/AutoLaunch/dictation_overlay.py` — 80-char truncation added
+
+### Known Issues
+- SFSpeechRecognizer text-dropping still open from Session 8
+- `/focus-push` ID format mismatch still open from Session 7
+- Watch app icon still needed
+- Double-escape intermittently unreliable (from Session 5)
+
+### Running Services
+- `dispatch_server.py` running on port 9876
+
+### Next Steps
+1. Consider removing iTerm2 status bar dictation component since HUD supersedes it
+2. Test HUD with very long dictation sessions
+3. Continue with watch app improvements
+4. Address SFSpeechRecognizer text-dropping (Part 3 plan from Session 8)
+
+---
+
 ## Session 10 — 2026-03-16 15:20 — Fix Dictation Overlay Stacking Bug
 
 ### Goal
