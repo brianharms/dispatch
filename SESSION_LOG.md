@@ -2,6 +2,57 @@
 
 ---
 
+## Session 12 — 2026-05-03 15:39 — Tailscale-only bind + Script-substring filter fix + LAN cleanup
+
+### Goal
+User opened a fresh session asking "what's my IP", then "make sure dispatch server is running", then progressively: phone couldn't connect, one window was missing, and finally locked everything down to Tailscale only.
+
+### Accomplished
+- **Identified DHCP IP rotation as a debug trap**: user's LAN IP rotated mid-session (`192.168.1.175` → `192.168.1.168`) without the user reconnecting. Wasted ~20 min initially attributing a curl timeout to firewall before realizing the IP had simply changed. `ipconfig getifaddr en0` should be the cheapest first check whenever "phone can't reach dispatch."
+- **Fixed `"Script"` substring filter in `refresh_windows()` and `get_window_layout()`**: both AppleScript blocks were excluding any window whose name contained the substring "script" — which silently dropped a legitimate window titled "Download all Claude code transcripts to desktop" because "transcripts" matched. Changed to `name is "Script" or name starts with "Scripts/"` (exact match for iTerm2's automation script convention). This was the cause of the user's reported "one window missing." Both filters must stay in sync — a `[warn] Layout missing locked windows: got N/M` loop is the symptom when they diverge.
+- **Added interactive bind-IP picker + CLI flags to dispatch_server.py**: `main()` now calls `choose_bind_ip()` which supports `--bind <ip>`, `--lan` (0.0.0.0), `--localhost` (127.0.0.1), `--tailscale` (auto-detects via `tailscale ip -4`), or an interactive prompt that lists localhost/LAN/Tailscale options. Tailscale option only shows if `tailscale ip -4` returns a `100.x.y.z` address. The `ThreadingHTTPServer` now binds the chosen IP instead of hard-coded `0.0.0.0`. Added `import sys`.
+- **Restarted dispatch with `--tailscale`**: now bound to `100.77.8.62:9876` only — LAN access is gone. Verified via curl that `192.168.1.168:9876` returns instant HTTP 000 (no listener) and `100.77.8.62:9876` returns HTTP 200.
+- **Killed seven stale `python -m http.server` processes** that had been running for 5–20 days, each serving `~/Desktop/Claude` (or `~/Desktop/Brain`) read-only over LAN. Ports freed: 7843, 8111, 8765, 8787, 8877, 8910, 9482.
+- **Locked down Kokoro TTS to localhost**: changed `--host 0.0.0.0` to `--host 127.0.0.1` in `~/.voicemode/services/kokoro/start-gpu_mac.sh` and reloaded the LaunchAgent (`com.voicemode.kokoro`). Verified bind to `127.0.0.1:8880`.
+- **Saved gotchas to global memory**: `~/.claude/projects/-Users-brianharms/memory/project_dispatch_gotchas.md` documents (1) DHCP IP rotation trap, (2) "Script" substring filter, (3) two-enumerator sync requirement.
+
+### In Progress / Incomplete
+- **Dispatch skill at `~/.claude/skills/dispatch/SKILL.md` still launches with no flags** — when next started via `/dispatch on`, it will pop the interactive picker, which won't work in a backgrounded shell context (will hit EOFError and pick the default). Should be updated to default to `--tailscale` if Tailscale is up, otherwise prompt. The user offered to save the `--tailscale` flag in the launch instructions but declined to confirm before triggering shutdown.
+- **Bonjour advertising still references the LAN IP / hostname** — when bound to Tailscale only, the Bonjour service won't actually be reachable via `Brians-MacBook-Pro.local` for LAN clients. Currently falls back to manual IP config (zeroconf module not installed in 3.14 venv anyway, so it's a no-op).
+- **`Dispatch 3.xcodeproj/` and `Dispatch 4.xcodeproj/` are untracked** — these are duplicate Xcode project files (likely from "duplicate" actions in Finder). Should probably be deleted, but were not touched this session. Same for the watch-app changes — those are from a prior session and were left alone.
+
+### Key Decisions
+- **Tailscale-only over LAN**: user has Tailscale installed (started during the session), tailnet IP is `100.77.8.62`. Phone is `iphone181` at `100.90.30.71` (was offline at session end — user needs to launch Tailscale app on phone). Bound dispatch to the Tailscale IP directly rather than `0.0.0.0` + firewall rules — cleaner, no LAN exposure even if firewall is later disabled.
+- **Bind by IP, not interface name**: Python's `socket.bind` takes an IP, not an interface. User accepted that Tailscale IPs "don't change often" so binding by IP is acceptable. If the IP ever rotates, user re-runs with `--tailscale` and it auto-resolves via `tailscale ip -4`.
+- **Did not turn on the firewall via sudo**: I cannot prompt for sudo from the Bash tool (no TTY). User toggled it themselves via System Settings. As of session end, firewall is **on** (verified with `--getglobalstate`).
+- **Substring → exact-match for "Script" filter**: chose `name is "Script" or name starts with "Scripts/"` to match iTerm2's actual automation window naming convention, rather than a regex or a denylist.
+- **Did not update SKILL.md or add `--tailscale` as default** because user shut down before confirming. Next session should ask before changing dispatch skill behavior.
+
+### Files Changed
+- `server/dispatch_server.py` — added `import sys`, `get_tailscale_self_ip()`, `choose_bind_ip()`, changed `main()` to use chosen bind IP. Fixed `"Script"` substring filter in two AppleScript blocks (lines ~118 in `refresh_windows()` and ~556 in `get_window_layout()`).
+- `~/.voicemode/services/kokoro/start-gpu_mac.sh` — `--host 0.0.0.0` → `--host 127.0.0.1` (line 21). LaunchAgent reloaded.
+- `~/.claude/projects/-Users-brianharms/memory/project_dispatch_gotchas.md` — new memory file with three gotchas.
+- `~/.claude/projects/-Users-brianharms/memory/MEMORY.md` — added pointer to new memory file under new "Project: dispatch" heading.
+
+### Known Issues
+- **Phone still offline** as of session end. User needs to launch Tailscale on iPhone. Once online, connect to `http://100.77.8.62:9876`.
+- **Auto-refresh window list still occasionally races**: `refresh_windows()` and `get_window_layout()` are independent AppleScript calls and can disagree mid-flight if iTerm2's window state changes between them. Visible as `[warn] Layout missing locked windows` log lines, but not user-visible after the substring fix.
+- **Two extra Xcode projects** (`Dispatch 3.xcodeproj/`, `Dispatch 4.xcodeproj/`) clutter the project root. Untouched this session.
+- **`zeroconf` not installed** in the Python 3.14 environment, so Bonjour advertising silently no-ops. Phone has to be configured manually with the IP.
+
+### Running Services
+- **dispatch_server.py** — PID 16852 (or whatever pgrep finds), bound to `100.77.8.62:9876`, Tailscale only. Started with `cd ~/Desktop/Claude\ Projects/dispatch && /opt/homebrew/bin/python3.14 -u server/dispatch_server.py --tailscale` as a background task.
+- **Kokoro TTS** — PID 17428, LaunchAgent-managed, bound to `127.0.0.1:8880`. Restart with `launchctl kickstart -k gui/$(id -u)/com.voicemode.kokoro` if needed.
+- **macOS firewall** — ON (`--getglobalstate` returns `State = 1`).
+
+### Next Steps
+1. **Verify the phone connects** to `http://100.77.8.62:9876` once user launches Tailscale on iPhone. If it works, the lockdown is complete.
+2. **Update the `/dispatch` skill** at `~/.claude/skills/dispatch/SKILL.md` to launch with `--tailscale` by default, falling back to the interactive prompt if Tailscale isn't running. Currently it just runs `python -u server/dispatch_server.py` with no flag, which will hit the interactive prompt in a non-TTY context.
+3. **Decide whether to delete `Dispatch 3.xcodeproj/` and `Dispatch 4.xcodeproj/`** — likely Finder duplicates. Confirm with user first per CLAUDE.md "never delete project folders without confirmation."
+4. **Optional**: install `zeroconf` in the dispatch venv so Bonjour advertising works again for the new bind IP.
+
+---
+
 ## Session 11 — 2026-04-01 18:05 — Floating Dictation HUD + Window Re-Sort
 
 ### Goal

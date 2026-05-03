@@ -7,6 +7,7 @@ import os
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import termios
 import threading
@@ -115,7 +116,7 @@ def refresh_windows():
         repeat with w in windows
             if miniaturized of w is false then
                 set wName to name of w
-                if wName does not contain "Script" then
+                if wName is not "Script" and wName does not start with "Scripts/" then
                     set end of idList to id of w
                     set end of nameList to wName
                 end if
@@ -553,7 +554,8 @@ def get_window_layout():
         set activeWinID to id of current window
         repeat with w in windows
             if miniaturized of w is true then
-            else if name of w contains "Script" then
+            else if name of w is "Script" then
+            else if name of w starts with "Scripts/" then
             else
             set wID to id of w
             set wName to name of w
@@ -1204,11 +1206,76 @@ def start_bonjour():
     return zc, info
 
 
+def get_tailscale_self_ip():
+    """Return this Mac's Tailscale IPv4 address, or None if not available."""
+    try:
+        result = subprocess.run(
+            ['tailscale', 'ip', '-4'],
+            capture_output=True, text=True, timeout=3
+        )
+        ip = result.stdout.strip().split('\n')[0]
+        if ip and ip.startswith('100.'):
+            return ip
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def choose_bind_ip():
+    """Interactive picker for the bind address.
+
+    Reads --bind / --lan / --localhost / --tailscale flags from sys.argv if
+    provided; otherwise prompts the user to choose between LAN, localhost, or
+    this Mac's Tailscale IP.
+    """
+    argv = sys.argv[1:]
+    for i, a in enumerate(argv):
+        if a == '--bind' and i + 1 < len(argv):
+            return argv[i + 1]
+        if a.startswith('--bind='):
+            return a.split('=', 1)[1]
+    if '--lan' in argv:
+        return '0.0.0.0'
+    if '--localhost' in argv:
+        return '127.0.0.1'
+    if '--tailscale' in argv:
+        ts = get_tailscale_self_ip()
+        if not ts:
+            print("  [error] --tailscale requested but Tailscale is not running")
+            sys.exit(1)
+        return ts
+
+    ts = get_tailscale_self_ip()
+    options = [
+        ('1', '127.0.0.1', 'localhost only (this Mac)'),
+        ('2', '0.0.0.0', 'LAN (anyone on Wi-Fi)'),
+    ]
+    if ts:
+        options.append(('3', ts, f'Tailscale only (this Mac\'s tailnet IP {ts})'))
+
+    print("\n  Where should dispatch listen?")
+    for key, ip, label in options:
+        print(f"    [{key}] {label}")
+    default = '3' if ts else '1'
+    try:
+        choice = input(f"  Choice [{default}]: ").strip() or default
+    except EOFError:
+        choice = default
+    for key, ip, _ in options:
+        if choice == key:
+            return ip
+    print(f"  Unknown choice {choice!r} — defaulting to {options[0][1]}")
+    return options[0][1]
+
+
 def main():
     hostname = socket.gethostname().replace('.local', '')
     lock_windows()
 
+    bind_ip = choose_bind_ip()
+
     print(f"\n  Dispatch Server running on port {PORT}")
+    print(f"  Bound to: {bind_ip}:{PORT}")
     print(f"  URL: http://{hostname}.local:{PORT}")
     print(f"  Target app: {TARGET_APP}")
     print(f"  Windows locked: {len(state['window_ids'])}")
@@ -1223,7 +1290,7 @@ def main():
     cache_thread = threading.Thread(target=_refresh_cache_loop, daemon=True)
     cache_thread.start()
 
-    server = ThreadingHTTPServer(('0.0.0.0', PORT), DispatchHandler)
+    server = ThreadingHTTPServer((bind_ip, PORT), DispatchHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
