@@ -29,9 +29,14 @@ class HUDWindowController: NSObject, NSApplicationDelegate {
     var textField: NSTextField!
     var containerView: DraggableView!
     var maxWidth: CGFloat = 560
+    var maxHeight: CGFloat = 600  // capped to ~50% of the target screen on each anchor
     let horizontalPadding: CGFloat = 28
     let verticalPadding: CGFloat = 24
     var savedCenter: NSPoint?
+    // Full transcript text we've been told about. We display only the
+    // tail that fits within maxHeight, so older text scrolls up and out
+    // when the user keeps talking past the visible cap.
+    var fullText: String = ""
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Compute max width as 50% of screen
@@ -103,7 +108,18 @@ class HUDWindowController: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos: .userInteractive).async { [weak self] in
             while let line = readLine(strippingNewline: true) {
                 DispatchQueue.main.async {
-                    self?.updateText(line)
+                    if line.hasPrefix("__POS__:") {
+                        // Reposition command: x,y,w,h in screen coords (Cocoa,
+                        // origin bottom-left). Anchor the HUD just above this
+                        // rect, horizontally centered.
+                        let payload = String(line.dropFirst("__POS__:".count))
+                        let parts = payload.split(separator: ",").compactMap { Double($0) }
+                        if parts.count == 4 {
+                            self?.anchorAbove(rect: NSRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3]))
+                        }
+                    } else {
+                        self?.updateText(line)
+                    }
                 }
             }
             DispatchQueue.main.async {
@@ -112,22 +128,100 @@ class HUDWindowController: NSObject, NSApplicationDelegate {
         }
     }
 
+    // Center the HUD on the given screen rect. Used to follow the active
+    // iTerm window. Clamps to the visible screen so nothing falls off.
+    // Also updates the HUD's max width/height caps so the HUD never
+    // overhangs the target window or grows past 50% of its screen.
+    func anchorAbove(rect: NSRect) {
+        guard rect.width > 50 && rect.height > 50 else { return }
+
+        // Cap the HUD width to the target window's width (with a small inset
+        // so the rounded corners don't kiss the window edges).
+        let widthCap = max(200, min(rect.width - 24, 1000))
+        // Cap height to 50% of the screen the window lives on.
+        let screen = NSScreen.screens.first(where: { $0.frame.intersects(rect) }) ?? NSScreen.main
+        let screenH = screen?.visibleFrame.height ?? 600
+        let heightCap = screenH * 0.5
+
+        let widthChanged = abs(widthCap - maxWidth) > 1 || abs(heightCap - maxHeight) > 1
+        maxWidth = widthCap
+        maxHeight = heightCap
+        if widthChanged {
+            // Re-resize so the new caps take effect immediately.
+            applyDisplayedText()
+            resizeToFit()
+        }
+
+        let frame = window.frame
+        var newOrigin = NSPoint(
+            x: rect.midX - frame.width / 2,
+            y: rect.midY - frame.height / 2
+        )
+
+        if let screen = screen {
+            let visible = screen.visibleFrame
+            if newOrigin.x < visible.minX { newOrigin.x = visible.minX + 8 }
+            if newOrigin.x + frame.width > visible.maxX { newOrigin.x = visible.maxX - frame.width - 8 }
+            if newOrigin.y < visible.minY { newOrigin.y = visible.minY + 8 }
+            if newOrigin.y + frame.height > visible.maxY { newOrigin.y = visible.maxY - frame.height - 8 }
+        }
+        window.setFrameOrigin(newOrigin)
+        savedCenter = NSPoint(x: window.frame.midX, y: window.frame.midY)
+    }
+
     func updateText(_ text: String) {
-        if text.isEmpty {
+        fullText = text
+        applyDisplayedText()
+        resizeToFit()
+    }
+
+    // Compute what to show from `fullText` given the current maxWidth and
+    // maxHeight caps. If the text would exceed maxHeight, drop characters
+    // from the START until it fits, prefixed with `…` so the user knows
+    // there's more above.
+    func applyDisplayedText() {
+        if fullText.isEmpty {
             textField.stringValue = "Listening\u{2026}"
             textField.textColor = .init(white: 0, alpha: 0.4)
-        } else {
-            textField.stringValue = text
-            textField.textColor = .black
+            return
         }
-        resizeToFit()
+        textField.textColor = .black
+
+        let textWidth = maxWidth - (horizontalPadding * 2)
+        let cappedHeight = maxHeight - (verticalPadding * 2)
+
+        // Fast path: full text fits without truncation.
+        textField.stringValue = fullText
+        var size = textField.sizeThatFits(NSSize(width: textWidth, height: .greatestFiniteMagnitude))
+        if size.height <= cappedHeight { return }
+
+        // Binary-search the largest tail that fits inside cappedHeight.
+        // We trim by character count for simplicity. Prepend "…" to indicate
+        // truncation.
+        let chars = Array(fullText)
+        var lo = 0
+        var hi = chars.count
+        var bestStart = 0
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            let candidate = "\u{2026} " + String(chars[mid...])
+            textField.stringValue = candidate
+            size = textField.sizeThatFits(NSSize(width: textWidth, height: .greatestFiniteMagnitude))
+            if size.height <= cappedHeight {
+                bestStart = mid
+                hi = mid - 1
+            } else {
+                lo = mid + 1
+            }
+        }
+        textField.stringValue = "\u{2026} " + String(chars[bestStart...])
     }
 
     func resizeToFit() {
         let textWidth = maxWidth - (horizontalPadding * 2)
         let textSize = textField.sizeThatFits(NSSize(width: textWidth, height: CGFloat.greatestFiniteMagnitude))
 
-        let totalHeight = verticalPadding + textSize.height + verticalPadding
+        let totalHeight = min(maxHeight, verticalPadding + textSize.height + verticalPadding)
         let totalWidth = min(maxWidth, textSize.width + horizontalPadding * 2 + 8)
         let finalWidth = max(200, totalWidth)
 

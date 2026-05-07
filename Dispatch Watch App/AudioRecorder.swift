@@ -6,20 +6,29 @@ class AudioRecorder: ObservableObject {
 
     private var audioRecorder: AVAudioRecorder?
     private let recordingURL: URL
+    private var recordingStartTime: Date?
+
+    /// Duration of the current (or most recent) recording, in seconds.
+    var lastRecordingDuration: TimeInterval {
+        guard let start = recordingStartTime else { return 0 }
+        return Date().timeIntervalSince(start)
+    }
 
     init() {
         recordingURL = FileManager.default.temporaryDirectory.appendingPathComponent("dictation.wav")
     }
 
-    func startRecording() {
-        guard !isRecording else { return }
+    /// Start recording. Returns `true` on success, `false` if audio session or recorder setup failed.
+    @discardableResult
+    func startRecording() -> Bool {
+        guard !isRecording else { return false }
 
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.record, mode: .default)
             try session.setActive(true)
         } catch {
-            return
+            return false
         }
 
         let settings: [String: Any] = [
@@ -34,8 +43,11 @@ class AudioRecorder: ObservableObject {
             audioRecorder = try AVAudioRecorder(url: recordingURL, settings: settings)
             audioRecorder?.record()
             isRecording = true
+            recordingStartTime = Date()
+            return true
         } catch {
             isRecording = false
+            return false
         }
     }
 
@@ -43,6 +55,8 @@ class AudioRecorder: ObservableObject {
         guard isRecording else { return nil }
         audioRecorder?.stop()
         isRecording = false
+        recordingStartTime = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         return try? Data(contentsOf: recordingURL)
     }
 }

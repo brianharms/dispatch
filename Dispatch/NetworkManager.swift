@@ -63,7 +63,9 @@ final class NetworkManager {
     #if targetEnvironment(simulator)
     private var serverURL: String = "http://localhost:9876"
     #else
-    private var serverURL: String = "http://192.168.1.80:9876"
+    // Default empty — set by user in Settings on first launch.
+    // The picker that appears asks for the Mac server's IP (LAN or Tailscale).
+    private var serverURL: String = ""
     #endif
     private var pollTimer: Timer?
     /// Number of consecutive poll failures. `isConnected` is only set to false

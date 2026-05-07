@@ -1,8 +1,39 @@
 build-debug/
+build-watch/
 *.xcuserdata
+xcuserdata/
 DerivedData/
 .DS_Store
 *.ipa
 *.dSYM.zip
 *.dSYM
 .claude/worktrees/
+
+# Internal session/dev notes (not for public repo)
+SESSION_LOG.md
+CLAUDE.md
+volume-event-diagram.html
+
+# Finder duplicates
+Dispatch [0-9]*.xcodeproj/
+Info [0-9]*.plist
+* [0-9]*.xcodeproj/
+
+# Python build artifacts
+__pycache__/
+*.pyc
+
+# Server runtime artifacts
+server/dictation_debug.log
+server/*.log
+
+# Secrets & credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+.auth-token

@@ -355,9 +355,25 @@ def clear_dictation_overlay(tty_path):
         print(f"  [overlay] Failed to clear: {e}")
 
 
+# Debounce window after a /recording-stop during which we refuse to spawn a
+# new HUD. Prevents a race where a /stream-text or /recording-start in flight
+# at the moment of pause re-spawns the HUD just after we killed it, leaving
+# a ghost "Listening..." HUD on screen. Reset by the next /recording-start
+# that arrives AFTER the window expires.
+_hud_stop_debounce_until = 0.0
+
+# Last requested HUD anchor position. Cached so a /hud-position request that
+# arrives before the HUD process is spawned isn't lost — show_dictation_hud()
+# applies it right after spawning.
+_pending_hud_position = None
+
+
 def show_dictation_hud():
     """Spawn the floating HUD window for dictation."""
     global _hud_process
+    if time.time() < _hud_stop_debounce_until:
+        # We just stopped the HUD; don't let a stale request resurrect it.
+        return
     close_dictation_hud()
     try:
         _hud_process = subprocess.Popen(
@@ -367,6 +383,16 @@ def show_dictation_hud():
             stderr=subprocess.DEVNULL,
         )
         print(f"  [hud] Spawned PID {_hud_process.pid}")
+        # If a /hud-position arrived before this spawn, apply it now.
+        if _pending_hud_position is not None:
+            try:
+                x, y, w, h = _pending_hud_position
+                line = f"__POS__:{x},{y},{w},{h}\n"
+                _hud_process.stdin.write(line.encode('utf-8'))
+                _hud_process.stdin.flush()
+                print(f"  [hud] Applied pending anchor x={int(x)} y={int(y)} w={int(w)} h={int(h)}")
+            except (BrokenPipeError, OSError) as e:
+                print(f"  [hud] Pending position write failed: {e}")
     except Exception as e:
         print(f"  [hud] Failed to spawn: {e}")
         _hud_process = None
@@ -385,9 +411,36 @@ def update_dictation_hud(text):
             _hud_process = None
 
 
+def position_dictation_hud(x, y, w, h):
+    """Tell the HUD to anchor itself above the given screen rect.
+
+    Coords are macOS Cocoa screen coords (origin = bottom-left of the
+    primary screen). The HUD interprets `__POS__:x,y,w,h` lines as a
+    reposition command rather than text content.
+
+    The latest position is also cached in `_pending_hud_position` so a
+    /hud-position request that arrives BEFORE the HUD has been spawned
+    isn't lost — the spawn path applies the cached position right after
+    starting the HUD.
+    """
+    global _hud_process, _pending_hud_position
+    _pending_hud_position = (x, y, w, h)
+    if _hud_process and _hud_process.poll() is None:
+        try:
+            line = f"__POS__:{x},{y},{w},{h}\n"
+            _hud_process.stdin.write(line.encode('utf-8'))
+            _hud_process.stdin.flush()
+        except (BrokenPipeError, OSError) as e:
+            print(f"  [hud] Position write failed: {e}")
+            _hud_process = None
+
+
 def close_dictation_hud():
     """Close the HUD by closing stdin (triggers fade-out)."""
-    global _hud_process
+    global _hud_process, _hud_stop_debounce_until
+    # Set the debounce BEFORE we actually close, so any /recording-start
+    # racing with us is rejected by show_dictation_hud's check.
+    _hud_stop_debounce_until = time.time() + 0.6
     if _hud_process:
         try:
             _hud_process.stdin.close()
@@ -398,6 +451,44 @@ def close_dictation_hud():
         except Exception:
             _hud_process.kill()
         _hud_process = None
+        _hud_process = None
+
+
+def flush_text_with_submit(text):
+    """Atomically type `text` and submit it to the active iTerm2 session.
+
+    Splits the write into TWO `write text` calls (text, then a raw CR) inside
+    a SINGLE osascript invocation, with a small delay between them. The delay
+    creates a pty read boundary between content bytes and the CR, which is
+    required by Ink-based TUIs (Claude Code, etc.) — they buffer text+CR
+    arriving in one read as a single chunk and never dispatch the submit.
+
+    Held under `_applescript_lock` so this serializes against dispatch's other
+    AppleScript calls (the 0.5s cache-refresh layout poll, /cycle, HUD ops).
+    """
+    escaped = text.replace('\\', '\\\\').replace('"', '\\"')
+    script = f'''
+    tell application "{TARGET_APP}"
+        tell current session of current tab of current window
+            write text "{escaped}" newline no
+            delay 0.05
+            write text (ASCII character 13) newline no
+        end tell
+    end tell
+    '''
+    try:
+        with _applescript_lock:
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=5
+            )
+        if result.returncode != 0:
+            print(f"  [error] flush_text_with_submit failed: {result.stderr.strip()}")
+            return False
+        return True
+    except subprocess.TimeoutExpired:
+        print("  [error] flush_text_with_submit timed out")
+        return False
 
 
 def type_text_iterm(text, enter=False):
@@ -1094,6 +1185,34 @@ class DispatchHandler(BaseHTTPRequestHandler):
                 with _text_lock:
                     current_typed_text = ""
             self.send_json({"ok": True, "typed": text})
+
+        elif self.path == "/hud-position":
+            # Anchor the floating HUD above a given screen rect (Cocoa coords).
+            # Used by /talk to follow the active iTerm window.
+            try:
+                x = float(body.get("x", 0))
+                y = float(body.get("y", 0))
+                w = float(body.get("w", 0))
+                h = float(body.get("h", 0))
+                position_dictation_hud(x, y, w, h)
+                self.send_json({"ok": True})
+            except Exception as e:
+                self.send_json({"ok": False, "reason": str(e)})
+
+        elif self.path == "/flush":
+            # Atomic text + Enter into the active iTerm2 session, with a
+            # read-boundary between them so TUIs (Claude Code) reliably submit.
+            # Used by the /talk skill's voice-listener.
+            text = body.get("text", "")
+            if not text:
+                self.send_json({"ok": False, "reason": "empty_text"})
+            else:
+                ok = flush_text_with_submit(text)
+                with _text_lock:
+                    current_typed_text = ""
+                    _dictation_final_text = ""
+                print(f"  Flushed: {repr(text[:80])} (ok={ok})")
+                self.send_json({"ok": ok, "typed": text})
 
         elif self.path == "/escape":
             clear_dictation_overlay(_dictation_tty)

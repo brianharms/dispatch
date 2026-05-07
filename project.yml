@@ -56,7 +56,7 @@ targets:
         CFBundleDisplayName: Dispatch
         NSMicrophoneUsageDescription: "Dispatch needs microphone access for voice dictation."
         NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true
         WKApplication: true
         WKWatchOnly: true
     settings:
@@ -65,8 +65,8 @@ targets:
         DEVELOPMENT_TEAM: X6HPD4S92D
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Automatic
-        MARKETING_VERSION: "0.1"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.2"
+        CURRENT_PROJECT_VERSION: "2"
         SWIFT_VERSION: "5.0"
         PRODUCT_MODULE_NAME: DispatchWatchApp
         PRODUCT_NAME: "Dispatch Watch App"

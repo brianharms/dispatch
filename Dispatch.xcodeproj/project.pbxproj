@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		04A1B2C3D4E5F6A7B8C9D0E1 /* BounceDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6A7B8C9D0E1F2 /* BounceDebugView.swift */; };
 		05382B96E23721CF90F881EF /* VolumeDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDCB96208506E9F618B1488B /* VolumeDebugView.swift */; };
 		0D161B8133A53AA547D04DB1 /* DispatchWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7788C48376C094A5155389 /* DispatchWatchApp.swift */; };
 		2B4852DC334DC22D0B9D200E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9BC98ACECF7520E54CFC41D3 /* Assets.xcassets */; };
@@ -21,18 +20,21 @@
 		81F6468102F73F2F21EFEB6A /* SimulatorControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DBAA33991B22E68D5641C7E /* SimulatorControlsView.swift */; };
 		8295C88D2543267B793F19B1 /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9DAD170C10C617F3CDD7A90 /* AudioRecorder.swift */; };
 		8336C4EBD6EA1BB11BFA09F4 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6597D664328EEF0DA27B221 /* NetworkManager.swift */; };
+		975ED98DD658B63F457E1B83 /* ClaudeCharacter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A85CFA3F537E3BE65B63A0 /* ClaudeCharacter.swift */; };
 		9A48611D40A855C048D30539 /* WindowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570F45CF394BC3E25EA6DF2D /* WindowLayout.swift */; };
 		A028EA8EFDF0BFDFF55E9F72 /* HiddenVolumeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F140F4A22394B5240954E449 /* HiddenVolumeView.swift */; };
+		A1CEEBA42E32A71A76B10511 /* BounceDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17698C5090C8D4AAC4006C81 /* BounceDebugView.swift */; };
 		B296AC3C38E94FE8EB1367B3 /* AudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */; };
 		C254C06724D4559E5DB62F73 /* ButtonIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 595AE09962CE4541CE91D84C /* ButtonIndicatorView.swift */; };
 		DEDBB73BCC5362060616AD34 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0106299FCDD4BFCF2D2836E9 /* ContentView.swift */; };
 		F367233B6EE6766ADA060F3C /* DispatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */; };
+		F8CFBADA168167F4F17302AC /* Info 2.plist in Resources */ = {isa = PBXBuildFile; fileRef = E781A682FD81BFB4F154F69C /* Info 2.plist */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0106299FCDD4BFCF2D2836E9 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		17698C5090C8D4AAC4006C81 /* BounceDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BounceDebugView.swift; sourceTree = "<group>"; };
 		1A85B85627C8BE406EB8DF1C /* Dispatch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Dispatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A1B2C3D4E5F6A7B8C9D0E1F2 /* BounceDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BounceDebugView.swift; sourceTree = "<group>"; };
 		2A73AF55B335600CA2334960 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
 		3D19E5F46D38C4D533B8D744 /* NetworkDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDebugView.swift; sourceTree = "<group>"; };
 		570F45CF394BC3E25EA6DF2D /* WindowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowLayout.swift; sourceTree = "<group>"; };
@@ -46,8 +48,10 @@
 		B6597D664328EEF0DA27B221 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
 		B9E8A59F864D0A598F27DE4C /* TerminalLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLayoutView.swift; sourceTree = "<group>"; };
 		CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeButtonManager.swift; sourceTree = "<group>"; };
+		D4A85CFA3F537E3BE65B63A0 /* ClaudeCharacter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCharacter.swift; sourceTree = "<group>"; };
 		D4F03A21ED5F35061ADCE904 /* Dispatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Dispatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		DDCB96208506E9F618B1488B /* VolumeDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeDebugView.swift; sourceTree = "<group>"; };
+		E781A682FD81BFB4F154F69C /* Info 2.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info 2.plist"; sourceTree = "<group>"; };
 		EC7788C48376C094A5155389 /* DispatchWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DispatchWatchApp.swift; sourceTree = "<group>"; };
 		F140F4A22394B5240954E449 /* HiddenVolumeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenVolumeView.swift; sourceTree = "<group>"; };
 		F2A7FA193517EE142FAD018C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -69,11 +73,12 @@
 			children = (
 				F2A7FA193517EE142FAD018C /* Assets.xcassets */,
 				8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */,
-				A1B2C3D4E5F6A7B8C9D0E1F2 /* BounceDebugView.swift */,
+				17698C5090C8D4AAC4006C81 /* BounceDebugView.swift */,
 				595AE09962CE4541CE91D84C /* ButtonIndicatorView.swift */,
 				B511BD345F5EABC2DA150C31 /* ContentView.swift */,
 				A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */,
 				F140F4A22394B5240954E449 /* HiddenVolumeView.swift */,
+				E781A682FD81BFB4F154F69C /* Info 2.plist */,
 				3D19E5F46D38C4D533B8D744 /* NetworkDebugView.swift */,
 				2A73AF55B335600CA2334960 /* NetworkManager.swift */,
 				8DBAA33991B22E68D5641C7E /* SimulatorControlsView.swift */,
@@ -99,6 +104,7 @@
 			children = (
 				9BC98ACECF7520E54CFC41D3 /* Assets.xcassets */,
 				F9DAD170C10C617F3CDD7A90 /* AudioRecorder.swift */,
+				D4A85CFA3F537E3BE65B63A0 /* ClaudeCharacter.swift */,
 				0106299FCDD4BFCF2D2836E9 /* ContentView.swift */,
 				EC7788C48376C094A5155389 /* DispatchWatchApp.swift */,
 				B6597D664328EEF0DA27B221 /* NetworkManager.swift */,
@@ -199,6 +205,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5EEBA710AECEFD76830FDAD6 /* Assets.xcassets in Resources */,
+				F8CFBADA168167F4F17302AC /* Info 2.plist in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -210,7 +217,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				B296AC3C38E94FE8EB1367B3 /* AudioManager.swift in Sources */,
-				04A1B2C3D4E5F6A7B8C9D0E1 /* BounceDebugView.swift in Sources */,
+				A1CEEBA42E32A71A76B10511 /* BounceDebugView.swift in Sources */,
 				C254C06724D4559E5DB62F73 /* ButtonIndicatorView.swift in Sources */,
 				81B12A552952630E95B97E6A /* ContentView.swift in Sources */,
 				F367233B6EE6766ADA060F3C /* DispatchApp.swift in Sources */,
@@ -230,6 +237,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8295C88D2543267B793F19B1 /* AudioRecorder.swift in Sources */,
+				975ED98DD658B63F457E1B83 /* ClaudeCharacter.swift in Sources */,
 				DEDBB73BCC5362060616AD34 /* ContentView.swift in Sources */,
 				0D161B8133A53AA547D04DB1 /* DispatchWatchApp.swift in Sources */,
 				8336C4EBD6EA1BB11BFA09F4 /* NetworkManager.swift in Sources */,
@@ -246,10 +254,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = X6HPD4S92D;
 				INFOPLIST_FILE = "Dispatch Watch App/Info.plist";
-				MARKETING_VERSION = 0.5;
+				MARKETING_VERSION = 0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch.watch;
 				PRODUCT_MODULE_NAME = DispatchWatchApp;
 				PRODUCT_NAME = "Dispatch Watch App";
@@ -275,7 +283,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.5;
+				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch;
 				PRODUCT_MODULE_NAME = DispatchApp;
 				PRODUCT_NAME = Dispatch;
@@ -363,7 +371,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.5;
+				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch;
 				PRODUCT_MODULE_NAME = DispatchApp;
 				PRODUCT_NAME = Dispatch;
@@ -435,10 +443,10 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = X6HPD4S92D;
 				INFOPLIST_FILE = "Dispatch Watch App/Info.plist";
-				MARKETING_VERSION = 0.5;
+				MARKETING_VERSION = 0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch.watch;
 				PRODUCT_MODULE_NAME = DispatchWatchApp;
 				PRODUCT_NAME = "Dispatch Watch App";
