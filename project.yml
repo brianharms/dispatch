@@ -1,0 +1,73 @@
+name: Dispatch
+options:
+  bundleIdPrefix: com.ritualindustries
+  deploymentTarget:
+    iOS: "17.0"
+    watchOS: "10.0"
+
+targets:
+  Dispatch:
+    type: application
+    platform: iOS
+    sources:
+      - path: Dispatch
+        excludes:
+          - Info.plist
+    info:
+      path: Dispatch/Info.plist
+      properties:
+        CFBundleDisplayName: Dispatch
+        UILaunchStoryboardName: ""
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+        UIRequiresFullScreen: true
+        NSMicrophoneUsageDescription: "Dispatch uses the microphone for voice dictation to your terminal."
+        NSSpeechRecognitionUsageDescription: "Dispatch uses speech recognition to transcribe your voice commands."
+        NSLocalNetworkUsageDescription: "Dispatch connects to a server on your Mac to control terminal windows."
+        NSBonjourServices:
+          - "_http._tcp"
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ritualindustries.dispatch
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "6.0"
+        PRODUCT_MODULE_NAME: DispatchApp
+        PRODUCT_NAME: Dispatch
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UIStatusBarStyle: ""
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationLandscapeLeft
+
+  Dispatch Watch App:
+    type: application
+    platform: watchOS
+    sources:
+      - path: Dispatch Watch App
+        excludes:
+          - Info.plist
+    info:
+      path: Dispatch Watch App/Info.plist
+      properties:
+        CFBundleDisplayName: Dispatch
+        NSMicrophoneUsageDescription: "Dispatch needs microphone access for voice dictation."
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        WKApplication: true
+        WKWatchOnly: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ritualindustries.dispatch.watch
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        MARKETING_VERSION: "0.2"
+        CURRENT_PROJECT_VERSION: "2"
+        SWIFT_VERSION: "5.0"
+        PRODUCT_MODULE_NAME: DispatchWatchApp
+        PRODUCT_NAME: "Dispatch Watch App"
+        TARGETED_DEVICE_FAMILY: "4"

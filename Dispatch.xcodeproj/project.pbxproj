@@ -1,0 +1,493 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		05382B96E23721CF90F881EF /* VolumeDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDCB96208506E9F618B1488B /* VolumeDebugView.swift */; };
+		0D161B8133A53AA547D04DB1 /* DispatchWatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7788C48376C094A5155389 /* DispatchWatchApp.swift */; };
+		2B4852DC334DC22D0B9D200E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 9BC98ACECF7520E54CFC41D3 /* Assets.xcassets */; };
+		2D642A03BF4F057BD0B59E96 /* NetworkDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D19E5F46D38C4D533B8D744 /* NetworkDebugView.swift */; };
+		396D19F627ECC95D70F25DFB /* VolumeButtonManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */; };
+		436072B45820896FCE331898 /* TerminalLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E8A59F864D0A598F27DE4C /* TerminalLayoutView.swift */; };
+		5EEBA710AECEFD76830FDAD6 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F2A7FA193517EE142FAD018C /* Assets.xcassets */; };
+		694A119D964D032BDE0D7365 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A73AF55B335600CA2334960 /* NetworkManager.swift */; };
+		7F1A64207EE218101A03848D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8887EA9C447C10246DFE9139 /* SettingsView.swift */; };
+		81B12A552952630E95B97E6A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B511BD345F5EABC2DA150C31 /* ContentView.swift */; };
+		81F6468102F73F2F21EFEB6A /* SimulatorControlsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8DBAA33991B22E68D5641C7E /* SimulatorControlsView.swift */; };
+		8295C88D2543267B793F19B1 /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9DAD170C10C617F3CDD7A90 /* AudioRecorder.swift */; };
+		8336C4EBD6EA1BB11BFA09F4 /* NetworkManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6597D664328EEF0DA27B221 /* NetworkManager.swift */; };
+		975ED98DD658B63F457E1B83 /* ClaudeCharacter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4A85CFA3F537E3BE65B63A0 /* ClaudeCharacter.swift */; };
+		9A48611D40A855C048D30539 /* WindowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570F45CF394BC3E25EA6DF2D /* WindowLayout.swift */; };
+		A028EA8EFDF0BFDFF55E9F72 /* HiddenVolumeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F140F4A22394B5240954E449 /* HiddenVolumeView.swift */; };
+		A1CEEBA42E32A71A76B10511 /* BounceDebugView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17698C5090C8D4AAC4006C81 /* BounceDebugView.swift */; };
+		B296AC3C38E94FE8EB1367B3 /* AudioManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */; };
+		C254C06724D4559E5DB62F73 /* ButtonIndicatorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 595AE09962CE4541CE91D84C /* ButtonIndicatorView.swift */; };
+		DEDBB73BCC5362060616AD34 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0106299FCDD4BFCF2D2836E9 /* ContentView.swift */; };
+		F367233B6EE6766ADA060F3C /* DispatchApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */; };
+		F8CFBADA168167F4F17302AC /* Info 2.plist in Resources */ = {isa = PBXBuildFile; fileRef = E781A682FD81BFB4F154F69C /* Info 2.plist */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0106299FCDD4BFCF2D2836E9 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		17698C5090C8D4AAC4006C81 /* BounceDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BounceDebugView.swift; sourceTree = "<group>"; };
+		1A85B85627C8BE406EB8DF1C /* Dispatch.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Dispatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2A73AF55B335600CA2334960 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
+		3D19E5F46D38C4D533B8D744 /* NetworkDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDebugView.swift; sourceTree = "<group>"; };
+		570F45CF394BC3E25EA6DF2D /* WindowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowLayout.swift; sourceTree = "<group>"; };
+		595AE09962CE4541CE91D84C /* ButtonIndicatorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ButtonIndicatorView.swift; sourceTree = "<group>"; };
+		8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioManager.swift; sourceTree = "<group>"; };
+		8887EA9C447C10246DFE9139 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		8DBAA33991B22E68D5641C7E /* SimulatorControlsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimulatorControlsView.swift; sourceTree = "<group>"; };
+		9BC98ACECF7520E54CFC41D3 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DispatchApp.swift; sourceTree = "<group>"; };
+		B511BD345F5EABC2DA150C31 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		B6597D664328EEF0DA27B221 /* NetworkManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkManager.swift; sourceTree = "<group>"; };
+		B9E8A59F864D0A598F27DE4C /* TerminalLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalLayoutView.swift; sourceTree = "<group>"; };
+		CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeButtonManager.swift; sourceTree = "<group>"; };
+		D4A85CFA3F537E3BE65B63A0 /* ClaudeCharacter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeCharacter.swift; sourceTree = "<group>"; };
+		D4F03A21ED5F35061ADCE904 /* Dispatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Dispatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		DDCB96208506E9F618B1488B /* VolumeDebugView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeDebugView.swift; sourceTree = "<group>"; };
+		E781A682FD81BFB4F154F69C /* Info 2.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info 2.plist"; sourceTree = "<group>"; };
+		EC7788C48376C094A5155389 /* DispatchWatchApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DispatchWatchApp.swift; sourceTree = "<group>"; };
+		F140F4A22394B5240954E449 /* HiddenVolumeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenVolumeView.swift; sourceTree = "<group>"; };
+		F2A7FA193517EE142FAD018C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		F9DAD170C10C617F3CDD7A90 /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		261B70FC90EBB0F0C3D583F8 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D4F03A21ED5F35061ADCE904 /* Dispatch Watch App.app */,
+				1A85B85627C8BE406EB8DF1C /* Dispatch.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		746B01343AD58FE591E8AC47 /* Dispatch */ = {
+			isa = PBXGroup;
+			children = (
+				F2A7FA193517EE142FAD018C /* Assets.xcassets */,
+				8499AA5BC5186C0DAD8FFDD8 /* AudioManager.swift */,
+				17698C5090C8D4AAC4006C81 /* BounceDebugView.swift */,
+				595AE09962CE4541CE91D84C /* ButtonIndicatorView.swift */,
+				B511BD345F5EABC2DA150C31 /* ContentView.swift */,
+				A92EC3ECEE85F98E899B1500 /* DispatchApp.swift */,
+				F140F4A22394B5240954E449 /* HiddenVolumeView.swift */,
+				E781A682FD81BFB4F154F69C /* Info 2.plist */,
+				3D19E5F46D38C4D533B8D744 /* NetworkDebugView.swift */,
+				2A73AF55B335600CA2334960 /* NetworkManager.swift */,
+				8DBAA33991B22E68D5641C7E /* SimulatorControlsView.swift */,
+				B9E8A59F864D0A598F27DE4C /* TerminalLayoutView.swift */,
+				CB58773A4AB0AF4A4653CA7C /* VolumeButtonManager.swift */,
+				DDCB96208506E9F618B1488B /* VolumeDebugView.swift */,
+				570F45CF394BC3E25EA6DF2D /* WindowLayout.swift */,
+			);
+			path = Dispatch;
+			sourceTree = "<group>";
+		};
+		BDA84CECE8EE0829C694EAFC = {
+			isa = PBXGroup;
+			children = (
+				746B01343AD58FE591E8AC47 /* Dispatch */,
+				CD0F185A5AABFA1334DC662D /* Dispatch Watch App */,
+				261B70FC90EBB0F0C3D583F8 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		CD0F185A5AABFA1334DC662D /* Dispatch Watch App */ = {
+			isa = PBXGroup;
+			children = (
+				9BC98ACECF7520E54CFC41D3 /* Assets.xcassets */,
+				F9DAD170C10C617F3CDD7A90 /* AudioRecorder.swift */,
+				D4A85CFA3F537E3BE65B63A0 /* ClaudeCharacter.swift */,
+				0106299FCDD4BFCF2D2836E9 /* ContentView.swift */,
+				EC7788C48376C094A5155389 /* DispatchWatchApp.swift */,
+				B6597D664328EEF0DA27B221 /* NetworkManager.swift */,
+				8887EA9C447C10246DFE9139 /* SettingsView.swift */,
+			);
+			path = "Dispatch Watch App";
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		9DE155901122A52FEC36F9DD /* Dispatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F1FA7F3C7377B58C87EF1A43 /* Build configuration list for PBXNativeTarget "Dispatch" */;
+			buildPhases = (
+				1CB6EBF8ADB21E2D3C5DDA66 /* Sources */,
+				A7A153CE7F266B23F31AE549 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Dispatch;
+			packageProductDependencies = (
+			);
+			productName = Dispatch;
+			productReference = 1A85B85627C8BE406EB8DF1C /* Dispatch.app */;
+			productType = "com.apple.product-type.application";
+		};
+		FFAD9C4686E4405983447199 /* Dispatch Watch App */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 0955043A72EAF1F6E5510AC7 /* Build configuration list for PBXNativeTarget "Dispatch Watch App" */;
+			buildPhases = (
+				5F2F8864EABD25E9E2CC121C /* Sources */,
+				42C5C6511FCC5DC6DA5CCE62 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Dispatch Watch App";
+			packageProductDependencies = (
+			);
+			productName = "Dispatch Watch App";
+			productReference = D4F03A21ED5F35061ADCE904 /* Dispatch Watch App.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		14AA8085D6B9BBFD53B912AB /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					9DE155901122A52FEC36F9DD = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+					FFAD9C4686E4405983447199 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = FE140F6FB49B1E6BA0BB785B /* Build configuration list for PBXProject "Dispatch" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = BDA84CECE8EE0829C694EAFC;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				9DE155901122A52FEC36F9DD /* Dispatch */,
+				FFAD9C4686E4405983447199 /* Dispatch Watch App */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		42C5C6511FCC5DC6DA5CCE62 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2B4852DC334DC22D0B9D200E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A7A153CE7F266B23F31AE549 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5EEBA710AECEFD76830FDAD6 /* Assets.xcassets in Resources */,
+				F8CFBADA168167F4F17302AC /* Info 2.plist in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1CB6EBF8ADB21E2D3C5DDA66 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B296AC3C38E94FE8EB1367B3 /* AudioManager.swift in Sources */,
+				A1CEEBA42E32A71A76B10511 /* BounceDebugView.swift in Sources */,
+				C254C06724D4559E5DB62F73 /* ButtonIndicatorView.swift in Sources */,
+				81B12A552952630E95B97E6A /* ContentView.swift in Sources */,
+				F367233B6EE6766ADA060F3C /* DispatchApp.swift in Sources */,
+				A028EA8EFDF0BFDFF55E9F72 /* HiddenVolumeView.swift in Sources */,
+				2D642A03BF4F057BD0B59E96 /* NetworkDebugView.swift in Sources */,
+				694A119D964D032BDE0D7365 /* NetworkManager.swift in Sources */,
+				81F6468102F73F2F21EFEB6A /* SimulatorControlsView.swift in Sources */,
+				436072B45820896FCE331898 /* TerminalLayoutView.swift in Sources */,
+				396D19F627ECC95D70F25DFB /* VolumeButtonManager.swift in Sources */,
+				05382B96E23721CF90F881EF /* VolumeDebugView.swift in Sources */,
+				9A48611D40A855C048D30539 /* WindowLayout.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5F2F8864EABD25E9E2CC121C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8295C88D2543267B793F19B1 /* AudioRecorder.swift in Sources */,
+				975ED98DD658B63F457E1B83 /* ClaudeCharacter.swift in Sources */,
+				DEDBB73BCC5362060616AD34 /* ContentView.swift in Sources */,
+				0D161B8133A53AA547D04DB1 /* DispatchWatchApp.swift in Sources */,
+				8336C4EBD6EA1BB11BFA09F4 /* NetworkManager.swift in Sources */,
+				7F1A64207EE218101A03848D /* SettingsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0A5E7CAC6B8E381D7241751D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = "Dispatch Watch App/Info.plist";
+				MARKETING_VERSION = 0.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch.watch;
+				PRODUCT_MODULE_NAME = DispatchWatchApp;
+				PRODUCT_NAME = "Dispatch Watch App";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Debug;
+		};
+		351E553F68586C9A93B56FDD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = Dispatch/Info.plist;
+				INFOPLIST_KEY_UIStatusBarStyle = "";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationLandscapeLeft;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch;
+				PRODUCT_MODULE_NAME = DispatchApp;
+				PRODUCT_NAME = Dispatch;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		747AA0015A3F79B6A906C9F9 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		7BB95AEC068C098A411429D6 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = Dispatch/Info.plist;
+				INFOPLIST_KEY_UIStatusBarStyle = "";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationLandscapeLeft;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch;
+				PRODUCT_MODULE_NAME = DispatchApp;
+				PRODUCT_NAME = Dispatch;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		C10C5BB35759E5F64D874C9B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Release;
+		};
+		D66E00B1873D0DDC340EBAE7 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = "Dispatch Watch App/Info.plist";
+				MARKETING_VERSION = 0.2;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ritualindustries.dispatch.watch;
+				PRODUCT_MODULE_NAME = DispatchWatchApp;
+				PRODUCT_NAME = "Dispatch Watch App";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		0955043A72EAF1F6E5510AC7 /* Build configuration list for PBXNativeTarget "Dispatch Watch App" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0A5E7CAC6B8E381D7241751D /* Debug */,
+				D66E00B1873D0DDC340EBAE7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F1FA7F3C7377B58C87EF1A43 /* Build configuration list for PBXNativeTarget "Dispatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7BB95AEC068C098A411429D6 /* Debug */,
+				351E553F68586C9A93B56FDD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FE140F6FB49B1E6BA0BB785B /* Build configuration list for PBXProject "Dispatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				747AA0015A3F79B6A906C9F9 /* Debug */,
+				C10C5BB35759E5F64D874C9B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 14AA8085D6B9BBFD53B912AB /* Project object */;
+}
