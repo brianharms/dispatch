@@ -1074,8 +1074,9 @@ def request_signature(token, method, path, ts, nonce, body=b""):
     return hmac.new(token.encode("utf-8"), msg, hashlib.sha256).hexdigest()
 
 
-def verify_signature(token, method, path, header, body):
-    """None if the request is correctly signed, fresh and new; else the reason."""
+def precheck_auth_header(header):
+    """Everything about X-Dispatch-Auth that can be checked without the body.
+    Returns (ts, nonce, sig) or a reason string."""
     parts = (header or "").split()
     if len(parts) != 4 or parts[0] != "v1":
         return f"missing or malformed {AUTH_HEADER}"
@@ -1084,11 +1085,25 @@ def verify_signature(token, method, path, header, body):
         ts_i = int(ts)
     except ValueError:
         return "bad timestamp"
-    now = time.time()
-    if abs(now - ts_i) > AUTH_WINDOW_S:
+    if abs(time.time() - ts_i) > AUTH_WINDOW_S:
         return "stale request (are both clocks right?)"
     if not (16 <= len(nonce) <= 64) or not nonce.isalnum():
         return "bad nonce"
+    if len(sig) != 64:
+        return "bad signature"
+    with _nonce_lock:
+        if nonce in _seen_nonces:
+            return "replayed request"
+    return ts, nonce, sig
+
+
+def verify_signature(token, method, path, header, body):
+    """None if the request is correctly signed, fresh and new; else the reason."""
+    pre = precheck_auth_header(header)
+    if isinstance(pre, str):
+        return pre
+    ts, nonce, sig = pre
+    now = time.time()
     expected = request_signature(token, method, path, ts, nonce, body)
     if not hmac.compare_digest(sig.lower().encode("ascii", "replace"), expected.encode("ascii")):
         return "bad signature"
@@ -1102,6 +1117,10 @@ def verify_signature(token, method, path, header, body):
 
 
 class DispatchHandler(BaseHTTPRequestHandler):
+    # Socket read timeout: a client that stalls mid-request gets dropped
+    # instead of pinning a thread. (/watch waits server-side, unaffected.)
+    timeout = 15
+
     def send_json(self, data, status=200):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
@@ -1156,7 +1175,18 @@ class DispatchHandler(BaseHTTPRequestHandler):
                     return self._refuse(415, "/dictate needs an audio/* body")
             elif ctype != "application/json":
                 return self._refuse(415, "Content-Type must be application/json")
-        # Read the body up front (size-capped): remote signatures cover it.
+        from_this_mac = self._from_this_mac()
+        open_ping = self.command == "GET" and self.path == "/ping"
+        # Remote callers: reject on everything checkable without the body
+        # BEFORE buffering it, so an unauthenticated peer can't make us hold
+        # megabytes.
+        if not from_this_mac and not open_ping:
+            if not _auth["token"]:
+                return self._refuse(403, "remote access is off")
+            pre = precheck_auth_header(h.get(AUTH_HEADER))
+            if isinstance(pre, str):
+                return self._refuse(401, pre)
+        # Read the body (size-capped): remote signatures cover it.
         self._raw_body = b""
         if self.command == "POST":
             try:
@@ -1168,16 +1198,14 @@ class DispatchHandler(BaseHTTPRequestHandler):
                 return self._refuse(413, "body too large")
             self._raw_body = self.rfile.read(length) if length else b""
         # 3. This Mac: no token, but the Host must not be a DNS name.
-        if self._from_this_mac():
+        if from_this_mac:
             if not _host_is_literal_or_localhost(h.get("Host")):
                 return self._refuse(403, "Host must be localhost or an IP address")
             return True
         # 4. Another machine: must be signed with the shared secret (only
         #    /ping is open).
-        if self.command == "GET" and self.path == "/ping":
+        if open_ping:
             return True
-        if not _auth["token"]:
-            return self._refuse(403, "remote access is off")
         problem = verify_signature(_auth["token"], self.command, self.path,
                                    h.get(AUTH_HEADER), self._raw_body)
         if problem:
