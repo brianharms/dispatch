@@ -2,10 +2,14 @@
 """Dispatch Server — control iTerm2 windows from iPhone."""
 
 import fcntl
+import hashlib
+import hmac
+import ipaddress
 import json
 import os
 import socket
 import struct
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -19,8 +23,44 @@ TRANSCRIBE_BIN = os.path.join(SCRIPT_DIR, "transcribe")
 DICTATION_HUD_BIN = os.path.join(SCRIPT_DIR, "dictation_hud")
 DEBUG_LOG_FILE = os.path.join(SCRIPT_DIR, "dictation_debug.log")
 
-PORT = 9876
+PORT = 9879
 TARGET_APP = "iTerm2"
+
+# --- Access control ----------------------------------------------------------
+# dispatch types text into iTerm, and whatever it types gets run, so it must
+# only take orders from you:
+#   * Default bind is 127.0.0.1 (this Mac only).
+#   * LAN / Tailscale is an explicit opt-in: --lan, --tailscale, --bind <ip>,
+#     or a one-word file ~/.config/dispatch/remote ("lan" / "tailscale" / an IP).
+#     In that mode every request from ANOTHER machine must be signed with the
+#     shared secret (token file: ~/.config/dispatch/token, created on first
+#     remote start, mode 600; or set DISPATCH_TOKEN). The token itself never
+#     crosses the network, so sniffing the LAN or answering as a fake Bonjour
+#     "dispatch" doesn't reveal it:
+#         X-Dispatch-Auth: v1 <unix-seconds> <nonce> <hex>
+#         hex = HMAC-SHA256(token, "METHOD\nPATH?QUERY\nSECONDS\nNONCE\n" + body)
+#     Stale (> 90 s off), replayed (nonce seen before) or altered requests fail.
+#   * Requests from this Mac need no token, but must name the host as an IP
+#     literal or "localhost" (blocks DNS rebinding).
+#   * Browser requests (Origin / Sec-Fetch-* headers) are always refused, so a
+#     web page can't reach dispatch through localhost. No CORS headers are sent.
+#   * POST bodies must be application/json (audio/* or octet-stream for /dictate).
+CONFIG_DIR = os.path.expanduser(os.environ.get("DISPATCH_CONFIG_DIR", "~/.config/dispatch"))
+TOKEN_FILE = os.path.join(CONFIG_DIR, "token")
+REMOTE_FILE = os.path.join(CONFIG_DIR, "remote")
+AUTH_HEADER = "X-Dispatch-Auth"
+AUTH_WINDOW_S = 90
+MAX_JSON_BODY = 1_000_000
+MAX_AUDIO_BODY = 50_000_000
+_auth = {"token": None}  # set in main() when bound beyond loopback
+_seen_nonces: dict[str, float] = {}
+_nonce_lock = threading.Lock()
+
+# /notify endpoint state — append-only ring of recent events for CC sessions to read.
+NOTIFY_LOG_FILE = os.path.join(SCRIPT_DIR, "notify-events.jsonl")
+NOTIFY_RING_MAX = 100
+_notify_lock = threading.Lock()
+_notify_ring: list[dict] = []
 
 # Recording indicator color (hex for escape sequences — no AppleScript focus side-effects)
 RECORDING_HEX = "641414"  # dark red, ~RGB(100, 20, 20)
@@ -53,6 +93,23 @@ _text_lock = threading.Lock()
 
 # Recording state — tracks whether we're in a recording session
 _recording_active = False
+# TTY currently painted with RECORDING_HEX. Tracked separately from
+# state["current_index"] so that a /cycle mid-recording can clear the
+# correct (outgoing) TTY rather than whichever window happens to be
+# active when /recording-stop fires.
+_recording_painted_tty = None
+
+# Pinned delivery target (2026-09-04). When set, ALL text delivery (flush,
+# type, backspace, kill-line, escape) goes to the iTerm2 session whose tty
+# EXACTLY equals this value — never "current session of current tab of
+# current window", which resolves to whatever pane/window happens to hold
+# focus at write time (the pane-management trap; dictation once landed in an
+# unrelated window because of it). Set via POST /target {"tty": "/dev/ttysNNN"}
+# by the skill that starts dictation (talk-chime, /rundown); cleared by
+# /cycle (an explicit voice retarget) or POST /target {"tty": null}. If the
+# pinned session no longer exists (pane closed), delivery falls back to the
+# focused session for that one write and logs it.
+_pinned_tty = None
 
 # Dictation HUD process
 _hud_process = None
@@ -288,23 +345,41 @@ def get_restore_color(tty_path):
 
 
 def set_recording_color(on: bool):
-    """Set active window background via escape sequences (no focus side-effects)."""
-    global _recording_active
-    _recording_active = on
-    idx = state["current_index"]
-    if idx < 0 or idx >= len(state["window_ids"]):
-        return
-    wid = state["window_ids"][idx]
+    """Set active window background via escape sequences (no focus side-effects).
 
-    tty = get_session_tty(wid)
-    if not tty:
-        print(f"  [color] Could not get TTY for window {wid}")
-        return
+    On ON: paint the current active window red and remember its TTY in
+    _recording_painted_tty.
+    On OFF: clear the previously-painted TTY (NOT the current active one),
+    so a /cycle mid-recording does not orphan the red on the outgoing
+    window.
+    """
+    global _recording_active, _recording_painted_tty
+    _recording_active = on
 
     if on:
+        idx = state["current_index"]
+        if idx < 0 or idx >= len(state["window_ids"]):
+            return
+        wid = state["window_ids"][idx]
+        tty = get_session_tty(wid)
+        if not tty:
+            print(f"  [color] Could not get TTY for window {wid}")
+            return
+        # If a previous TTY is still painted (back-to-back ON without an
+        # intervening OFF), clear it first so we never leak a red window.
+        if _recording_painted_tty and _recording_painted_tty != tty:
+            old_tty = _recording_painted_tty
+            restore = get_restore_color(old_tty)
+            set_bg_via_tty(old_tty, restore)
+            print(f"  [color] Recording ON preempt — cleared stale {old_tty} -> {restore}")
         set_bg_via_tty(tty, RECORDING_HEX)
+        _recording_painted_tty = tty
         print(f"  [color] Recording ON — {tty} -> {RECORDING_HEX}")
     else:
+        tty = _recording_painted_tty
+        _recording_painted_tty = None
+        if not tty:
+            return
         restore = get_restore_color(tty)
         set_bg_via_tty(tty, restore)
         print(f"  [color] Recording OFF — {tty} -> {restore}")
@@ -455,6 +530,44 @@ def close_dictation_hud():
         _hud_process = None
 
 
+def _delivery_script(body):
+    """Wrap AppleScript `body` in a tell targeting the delivery session.
+
+    Pinned TTY set → exact-equality walk of windows→tabs→sessions (never
+    `current session`); pin gone → one-shot fallback to the focused session.
+    No pin → legacy focused-session behavior (standalone /talk, iPhone).
+    """
+    if _pinned_tty:
+        pin = _pinned_tty.replace('\\', '').replace('"', '')
+        return f'''
+    tell application "{TARGET_APP}"
+        set deliveryTarget to missing value
+        repeat with w in windows
+            repeat with t in tabs of w
+                repeat with s in sessions of t
+                    if tty of s is equal to "{pin}" then
+                        set deliveryTarget to s
+                    end if
+                end repeat
+            end repeat
+        end repeat
+        if deliveryTarget is missing value then
+            set deliveryTarget to current session of current tab of current window
+        end if
+        tell deliveryTarget
+            {body}
+        end tell
+    end tell
+    '''
+    return f'''
+    tell application "{TARGET_APP}"
+        tell current session of current tab of current window
+            {body}
+        end tell
+    end tell
+    '''
+
+
 def flush_text_with_submit(text):
     """Atomically type `text` and submit it to the active iTerm2 session.
 
@@ -468,15 +581,9 @@ def flush_text_with_submit(text):
     AppleScript calls (the 0.5s cache-refresh layout poll, /cycle, HUD ops).
     """
     escaped = text.replace('\\', '\\\\').replace('"', '\\"')
-    script = f'''
-    tell application "{TARGET_APP}"
-        tell current session of current tab of current window
-            write text "{escaped}" newline no
+    script = _delivery_script(f'''write text "{escaped}" newline no
             delay 0.05
-            write text (ASCII character 13) newline no
-        end tell
-    end tell
-    '''
+            write text (ASCII character 13) newline no''')
     try:
         with _applescript_lock:
             result = subprocess.run(
@@ -497,22 +604,10 @@ def type_text_iterm(text, enter=False):
     escaped = text.replace('\\', '\\\\').replace('"', '\\"')
     if enter:
         # write text already sends a newline, so just use it directly
-        script = f'''
-        tell application "{TARGET_APP}"
-            tell current session of current tab of current window
-                write text "{escaped}"
-            end tell
-        end tell
-        '''
+        script = _delivery_script(f'write text "{escaped}"')
     else:
         # write text without newline: use 'write text ... newline NO' (iTerm2 3.x+)
-        script = f'''
-        tell application "{TARGET_APP}"
-            tell current session of current tab of current window
-                write text "{escaped}" newline no
-            end tell
-        end tell
-        '''
+        script = _delivery_script(f'write text "{escaped}" newline no')
     try:
         with _applescript_lock:
             result = subprocess.run(
@@ -533,18 +628,12 @@ def send_backspaces_iterm(count):
     """
     if count <= 0:
         return
-    script = f'''
-    tell application "{TARGET_APP}"
-        tell current session of current tab of current window
-            set delChar to ASCII character 127
+    script = _delivery_script(f'''set delChar to ASCII character 127
             set delStr to ""
             repeat {count} times
                 set delStr to delStr & delChar
             end repeat
-            write text delStr newline no
-        end tell
-    end tell
-    '''
+            write text delStr newline no''')
     try:
         with _applescript_lock:
             result = subprocess.run(
@@ -564,13 +653,7 @@ def kill_line_and_retype_iterm(text):
     Ctrl-U (ASCII 21) kills from cursor to start of line in most shells/CLIs.
     """
     escaped = text.replace('\\', '\\\\').replace('"', '\\"')
-    script = f'''
-    tell application "{TARGET_APP}"
-        tell current session of current tab of current window
-            write text ((ASCII character 21) & "{escaped}") newline no
-        end tell
-    end tell
-    '''
+    script = _delivery_script(f'write text ((ASCII character 21) & "{escaped}") newline no')
     try:
         with _applescript_lock:
             result = subprocess.run(
@@ -588,15 +671,9 @@ def kill_line_and_retype_iterm(text):
 
 def send_escape():
     """Send double-escape to active iTerm2 session."""
-    script = f'''
-    tell application "{TARGET_APP}"
-        tell current session of current tab of current window
-            write text (ASCII character 27) newline no
+    script = _delivery_script('''write text (ASCII character 27) newline no
             delay 0.1
-            write text (ASCII character 27) newline no
-        end tell
-    end tell
-    '''
+            write text (ASCII character 27) newline no''')
     try:
         with _applescript_lock:
             result = subprocess.run(
@@ -947,36 +1024,176 @@ def _refresh_cache_loop():
         time.sleep(0.5)
 
 
+def load_or_create_token():
+    """Shared secret for remote clients. Never printed."""
+    env = os.environ.get("DISPATCH_TOKEN", "").strip()
+    if env:
+        return env
+    try:
+        with open(TOKEN_FILE) as f:
+            tok = f.read().strip()
+        if tok:
+            return tok
+    except FileNotFoundError:
+        pass
+    os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+    tok = secrets.token_urlsafe(32)
+    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(tok + "\n")
+    print(f"  [auth] created a new token in {TOKEN_FILE}")
+    return tok
+
+
+def _ip(addr):
+    try:
+        ip = ipaddress.ip_address(str(addr).split('%')[0])
+    except ValueError:
+        return None
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip
+
+
+def _host_is_literal_or_localhost(host_header):
+    """True when the Host header names localhost or an IP literal (no DNS name)."""
+    host = (host_header or "").strip().lower()
+    if not host:
+        return False
+    if host.startswith("["):                      # [::1]:9879
+        name = host[1:host.find("]")] if "]" in host else ""
+    elif host.count(":") == 1:                     # 127.0.0.1:9879 / localhost:9879
+        name = host.split(":", 1)[0]
+    else:
+        name = host
+    return name == "localhost" or _ip(name) is not None
+
+
+def request_signature(token, method, path, ts, nonce, body=b""):
+    """HMAC-SHA256 hex over the request. Clients compute the same thing."""
+    msg = f"{method}\n{path}\n{ts}\n{nonce}\n".encode("utf-8") + (body or b"")
+    return hmac.new(token.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+
+
+def verify_signature(token, method, path, header, body):
+    """None if the request is correctly signed, fresh and new; else the reason."""
+    parts = (header or "").split()
+    if len(parts) != 4 or parts[0] != "v1":
+        return f"missing or malformed {AUTH_HEADER}"
+    _, ts, nonce, sig = parts
+    try:
+        ts_i = int(ts)
+    except ValueError:
+        return "bad timestamp"
+    now = time.time()
+    if abs(now - ts_i) > AUTH_WINDOW_S:
+        return "stale request (are both clocks right?)"
+    if not (16 <= len(nonce) <= 64) or not nonce.isalnum():
+        return "bad nonce"
+    expected = request_signature(token, method, path, ts, nonce, body)
+    if not hmac.compare_digest(sig.lower().encode("ascii", "replace"), expected.encode("ascii")):
+        return "bad signature"
+    with _nonce_lock:
+        for k in [k for k, exp in _seen_nonces.items() if exp < now]:
+            del _seen_nonces[k]
+        if nonce in _seen_nonces:
+            return "replayed request"
+        _seen_nonces[nonce] = now + 2 * AUTH_WINDOW_S
+    return None
+
+
 class DispatchHandler(BaseHTTPRequestHandler):
     def send_json(self, data, status=200):
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
         self.wfile.write(json.dumps(data).encode())
 
     def read_body(self):
-        length = int(self.headers.get('Content-Length', 0))
-        if length == 0:
+        raw = getattr(self, "_raw_body", b"")  # read (and size-capped) in _authorize
+        if not raw:
             return {}
-        return json.loads(self.rfile.read(length))
+        body = json.loads(raw)
+        if not isinstance(body, dict):
+            raise ValueError("body must be a JSON object")
+        return body
 
     def log_message(self, format, *args):
         print(f"  {args[0]}")
 
+    def _refuse(self, status, reason):
+        print(f"  [auth] refused {self.command} {self.path} from {self.client_address[0]}: {reason}")
+        self.send_json({"error": reason}, status)
+        return False
+
+    def _from_this_mac(self):
+        """Loopback, or a connection whose source IP is the address it reached
+        (this Mac talking to its own LAN / Tailscale IP)."""
+        client = _ip(self.client_address[0])
+        if client is None:
+            return False
+        if client.is_loopback:
+            return True
+        try:
+            local = _ip(self.connection.getsockname()[0])
+        except OSError:
+            return False
+        return local is not None and client == local
+
+    def _authorize(self):
+        h = self.headers
+        # 1. Never from a browser. Browsers always send Origin on POST and
+        #    Sec-Fetch-* on everything; native clients (curl, URLSession,
+        #    urllib) send neither.
+        if h.get("Origin") is not None or h.get("Sec-Fetch-Site") is not None \
+                or h.get("Sec-Fetch-Mode") is not None:
+            return self._refuse(403, "browser requests are not allowed")
+        # 2. POST bodies: JSON only (audio for /dictate). Rejects the
+        #    form/text-plain bodies a page could send without a preflight.
+        if self.command == "POST":
+            ctype = (h.get("Content-Type") or "").split(";")[0].strip().lower()
+            if self.path == "/dictate":
+                if not (ctype.startswith("audio/") or ctype == "application/octet-stream"):
+                    return self._refuse(415, "/dictate needs an audio/* body")
+            elif ctype != "application/json":
+                return self._refuse(415, "Content-Type must be application/json")
+        # Read the body up front (size-capped): remote signatures cover it.
+        self._raw_body = b""
+        if self.command == "POST":
+            try:
+                length = int(h.get("Content-Length", 0))
+            except ValueError:
+                length = -1
+            cap = MAX_AUDIO_BODY if self.path == "/dictate" else MAX_JSON_BODY
+            if length < 0 or length > cap:
+                return self._refuse(413, "body too large")
+            self._raw_body = self.rfile.read(length) if length else b""
+        # 3. This Mac: no token, but the Host must not be a DNS name.
+        if self._from_this_mac():
+            if not _host_is_literal_or_localhost(h.get("Host")):
+                return self._refuse(403, "Host must be localhost or an IP address")
+            return True
+        # 4. Another machine: must be signed with the shared secret (only
+        #    /ping is open).
+        if self.command == "GET" and self.path == "/ping":
+            return True
+        if not _auth["token"]:
+            return self._refuse(403, "remote access is off")
+        problem = verify_signature(_auth["token"], self.command, self.path,
+                                   h.get(AUTH_HEADER), self._raw_body)
+        if problem:
+            return self._refuse(401, problem)
+        return True
+
     def do_OPTIONS(self):
-        """Handle CORS preflight."""
-        self.send_response(204)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-        self.end_headers()
+        """No CORS: browsers are not clients of dispatch."""
+        self.send_json({"error": "method not allowed"}, 405)
 
     # -- GET endpoints -----------------------------------------------------
 
     def do_GET(self):
+        if not self._authorize():
+            return
         if self.path == "/status":
             with _cache_lock:
                 status = dict(_cached_status) if _cached_status else {}
@@ -1017,6 +1234,45 @@ class DispatchHandler(BaseHTTPRequestHandler):
         elif self.path == "/ping":
             self.send_json({"ok": True})
 
+        elif self.path.startswith("/notify/recent"):
+            # Return recent notify events. Query params:
+            #   ?source=<name>   filter to events from a single source
+            #   ?since=<iso>     return only events newer than this timestamp
+            #   ?clear=1         drain the ring (LEGACY — prefer /notify/ack)
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            source = (q.get("source", [""])[0] or "").strip()
+            since = (q.get("since", [""])[0] or "").strip()
+            clear = q.get("clear", ["0"])[0] in ("1", "true", "yes")
+            with _notify_lock:
+                events = list(_notify_ring)
+                if clear:
+                    _notify_ring.clear()
+            if source:
+                events = [e for e in events if e.get("source") == source]
+            if since:
+                events = [e for e in events if e.get("ts", "") > since]
+            self.send_json({"events": events, "count": len(events)})
+
+        elif self.path.startswith("/notify/ack"):
+            # Acknowledge (and remove) a single event by id. The hook reads
+            # events with /notify/recent (no clear), runs the workflow, and
+            # only on success POSTs/GETs /notify/ack?id=<event-id>. If the
+            # workflow fails mid-run the event survives to be retried.
+            from urllib.parse import urlparse, parse_qs
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                event_id = int(q.get("id", ["0"])[0])
+            except ValueError:
+                self.send_json({"ok": False, "error": "invalid id"})
+                return
+            removed = 0
+            with _notify_lock:
+                before = len(_notify_ring)
+                _notify_ring[:] = [e for e in _notify_ring if e.get("id") != event_id]
+                removed = before - len(_notify_ring)
+            self.send_json({"ok": True, "removed": removed})
+
         elif self.path == "/layout":
             screen = get_screen_size()
             layout_windows, active_index = get_window_layout()
@@ -1034,9 +1290,11 @@ class DispatchHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         global current_typed_text, _dictation_final_text, _dictation_tty, _last_text_seq
 
+        if not self._authorize():
+            return
+
         if self.path == "/dictate":
-            length = int(self.headers.get('Content-Length', 0))
-            audio_data = self.rfile.read(length) if length > 0 else b''
+            audio_data = self._raw_body  # read + size-capped in _authorize
             if not audio_data:
                 self.send_json({"error": "no audio"}, 400)
                 return
@@ -1071,11 +1329,58 @@ class DispatchHandler(BaseHTTPRequestHandler):
             return
 
         # All other POST endpoints expect JSON body
-        body = self.read_body()
+        try:
+            body = self.read_body()
+        except ValueError as e:
+            self.send_json({"error": str(e)}, 400)
+            return
+
+        if self.path == "/notify":
+            # Event POSTed by external services (e.g. vizcom-watch) that an
+            # attached Claude Code session should react to. We:
+            #   1. Stamp with arrival time + assign monotonic ID
+            #   2. Append to in-memory ring (truncated to NOTIFY_RING_MAX)
+            #   3. Append to the JSON-lines log file on disk
+            #   4. Briefly badge the focused iTerm window so the user sees it
+            event = {
+                "id": int(time.time() * 1000),
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                **{k: body.get(k) for k in ("source", "event", "filename", "inbox_path", "message") if k in body},
+            }
+            with _notify_lock:
+                _notify_ring.append(event)
+                if len(_notify_ring) > NOTIFY_RING_MAX:
+                    del _notify_ring[: len(_notify_ring) - NOTIFY_RING_MAX]
+            try:
+                with open(NOTIFY_LOG_FILE, "a") as f:
+                    f.write(json.dumps(event) + "\n")
+            except OSError:
+                pass
+            print(f"  [notify] {event.get('source','?')}/{event.get('event','?')}: {event.get('filename') or event.get('message','')}")
+            self.send_json({"ok": True, "id": event["id"]})
+            return
+
+        if self.path == "/target":
+            # Pin (or clear) the delivery target session by exact TTY.
+            # {"tty": "/dev/ttysNNN"} pins; {"tty": null} or {} clears.
+            global _pinned_tty
+            tty = body.get("tty")
+            if tty is not None and (not isinstance(tty, str) or not tty.startswith("/dev/ttys")):
+                self.send_json({"error": "tty must be /dev/ttysNNN or null"})
+                return
+            _pinned_tty = tty
+            print(f"  [target] delivery pinned to {tty}" if tty else "  [target] delivery pin cleared")
+            self.send_json({"ok": True, "pinned_tty": _pinned_tty})
+            return
 
         if self.path == "/cycle":
             direction = body.get("direction", "next")
             seq = body.get("seq", 0)
+            # An explicit voice retarget overrides any pinned delivery TTY
+            # (global declared in the /target branch above).
+            if _pinned_tty is not None:
+                print(f"  [target] pin {_pinned_tty} cleared by /cycle")
+                _pinned_tty = None
             state["last_cycle_seq"] = seq
             # (cycle_pending_until removed — seq-based guard handles cooldown now)
             total = len(state["window_ids"])
@@ -1095,6 +1400,19 @@ class DispatchHandler(BaseHTTPRequestHandler):
             # Run AppleScript synchronously — only respond after window is confirmed active.
             name = activate_and_highlight(idx)
             state["cycle_confirmed_seq"] = max(state.get("cycle_confirmed_seq", 0), seq)
+
+            # If there is ANY recording-red painted somewhere (whether or
+            # not we believe recording is "active" — the listener can
+            # fire start/stop bursts and the bookkeeping flag drifts),
+            # clear that TTY and, if we are still recording, repaint the
+            # new active window. Without this, a cycle leaves the
+            # outgoing window stuck red because /recording-stop only
+            # clears whichever TTY we last painted, not whichever TTY
+            # was active at stop time.
+            if _recording_painted_tty is not None:
+                set_recording_color(on=False)  # clears _recording_painted_tty
+                if _recording_active:
+                    set_recording_color(on=True)   # repaint new current_index's TTY
 
             confirmed_name = name or (state["window_names"][idx] if idx < len(state["window_names"]) else "?")
             print(f"  Cycled {direction} -> [{idx}] {confirmed_name} (confirmed)")
@@ -1341,42 +1659,68 @@ def get_tailscale_self_ip():
     return None
 
 
-def choose_bind_ip():
-    """Interactive picker for the bind address.
+def _resolve_mode(word):
+    """'lan' / 'tailscale' / 'localhost' / an IP -> bind address."""
+    word = (word or "").strip().lower()
+    if word in ("lan", "0.0.0.0"):
+        return '0.0.0.0'
+    if word in ("localhost", "local", "127.0.0.1", ""):
+        return '127.0.0.1'
+    if word == "tailscale":
+        ts = get_tailscale_self_ip()
+        if not ts:
+            print("  [error] Tailscale mode requested but Tailscale is not running")
+            sys.exit(1)
+        return ts
+    if _ip(word) is not None:
+        return word
+    print(f"  [error] unknown bind mode {word!r} (use lan, tailscale, localhost or an IP)")
+    sys.exit(1)
 
-    Reads --bind / --lan / --localhost / --tailscale flags from sys.argv if
-    provided; otherwise prompts the user to choose between LAN, localhost, or
-    this Mac's Tailscale IP.
+
+def choose_bind_ip():
+    """Pick the bind address. Localhost unless remote access is opted into.
+
+    Order: --bind <ip> / --lan / --tailscale / --localhost flags, then the
+    one-word file ~/.config/dispatch/remote, then (only when run from an
+    interactive terminal) a picker that defaults to localhost. Non-interactive
+    starts with nothing configured get localhost.
     """
     argv = sys.argv[1:]
     for i, a in enumerate(argv):
         if a == '--bind' and i + 1 < len(argv):
-            return argv[i + 1]
+            return _resolve_mode(argv[i + 1])
         if a.startswith('--bind='):
-            return a.split('=', 1)[1]
+            return _resolve_mode(a.split('=', 1)[1])
     if '--lan' in argv:
         return '0.0.0.0'
     if '--localhost' in argv:
         return '127.0.0.1'
     if '--tailscale' in argv:
-        ts = get_tailscale_self_ip()
-        if not ts:
-            print("  [error] --tailscale requested but Tailscale is not running")
-            sys.exit(1)
-        return ts
+        return _resolve_mode('tailscale')
+    try:
+        with open(REMOTE_FILE) as f:
+            word = f.read().strip()
+        if word:
+            print(f"  [bind] remote access opted in via {REMOTE_FILE}: {word}")
+            return _resolve_mode(word)
+    except FileNotFoundError:
+        pass
+    if not sys.stdin or not sys.stdin.isatty():
+        return '127.0.0.1'
 
     ts = get_tailscale_self_ip()
     options = [
         ('1', '127.0.0.1', 'localhost only (this Mac)'),
-        ('2', '0.0.0.0', 'LAN (anyone on Wi-Fi)'),
+        ('2', '0.0.0.0', 'LAN (token required)'),
     ]
     if ts:
-        options.append(('3', ts, f'Tailscale only (this Mac\'s tailnet IP {ts})'))
+        options.append(('3', ts, f'Tailscale only (this Mac\'s tailnet IP {ts}, token required)'))
 
     print("\n  Where should dispatch listen?")
     for key, ip, label in options:
         print(f"    [{key}] {label}")
-    default = '3' if ts else '1'
+    default = '1'
     try:
         choice = input(f"  Choice [{default}]: ").strip() or default
     except EOFError:
@@ -1393,18 +1737,25 @@ def main():
     lock_windows()
 
     bind_ip = choose_bind_ip()
+    remote = not (_ip(bind_ip) and _ip(bind_ip).is_loopback)
+    if remote:
+        _auth["token"] = load_or_create_token()
 
     print(f"\n  Dispatch Server running on port {PORT}")
     print(f"  Bound to: {bind_ip}:{PORT}")
-    print(f"  URL: http://{hostname}.local:{PORT}")
+    if remote:
+        print(f"  Remote access: ON — other devices must sign requests with the token ({AUTH_HEADER}; token file: {TOKEN_FILE})")
+        print(f"  URL: http://{hostname}.local:{PORT}")
+    else:
+        print(f"  Remote access: off (this Mac only). Opt in with --lan / --tailscale or {REMOTE_FILE}")
     print(f"  Target app: {TARGET_APP}")
     print(f"  Windows locked: {len(state['window_ids'])}")
     for i, (wid, name) in enumerate(zip(state["window_ids"], state["window_names"])):
         print(f"    [{i}] id={wid} — {name}")
     print(f"\n  Waiting for phone...\n")
 
-    # Advertise via Bonjour
-    zc, zc_info = start_bonjour()
+    # Advertise via Bonjour (only when other devices can actually connect)
+    zc, zc_info = start_bonjour() if remote else (None, None)
 
     # Start background cache refresh — keeps /status instant
     cache_thread = threading.Thread(target=_refresh_cache_loop, daemon=True)

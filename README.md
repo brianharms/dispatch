@@ -12,6 +12,7 @@
 > - **Server side:** just run `server/dispatch_server.py` — and approve the **macOS Automation prompt** for iTerm2 on first run.
 > - **iPhone app:** open the project in Xcode, set **your own Apple Team ID** (Signing & Capabilities), and build to a **physical iPhone** (volume events don't work in the Simulator). Trust the developer cert on the phone: Settings → General → VPN & Device Management.
 > - Grant **Microphone + Speech Recognition** on the phone the first time you use voice.
+> - **Phone access is opt-in.** The server only listens on this Mac until you opt in (`echo tailscale > ~/.config/dispatch/remote`), and the app must be built with your token (Setup step 3). An agent must never commit that token.
 
 > **Experimental software. This project is a personal research prototype — it is unstable, under active development, and likely has bugs. Use at your own risk.**
 
@@ -29,7 +30,7 @@ It pairs an iOS app with a small Python server running on your Mac. The server s
 - **Voice → keystrokes.** Speak; on-device speech recognition transcribes and the server types your text into the focused terminal.
 - **Multi-window orchestration.** Sit on the couch and bounce between four agents working on four different things.
 - **Visual highlight.** The active iTerm2 window gets a colored tab so you can glance at the screen and know where input is going.
-- **Local-only.** Server can bind to `localhost`, your LAN, or your [Tailscale](https://tailscale.com/) tailnet — your call.
+- **Local by default.** The server listens on this Mac only. Reaching it from your phone over your LAN or [Tailscale](https://tailscale.com/) tailnet is an explicit opt-in, and then every request from another device must carry a shared token.
 
 ### Input matrix
 
@@ -57,7 +58,7 @@ It pairs an iOS app with a small Python server running on your Mac. The server s
 
 - **All processing is local.** Speech transcription runs on-device on the iPhone (via Apple's `Speech` framework). The server runs on your Mac. No third-party cloud services are involved.
 - **No telemetry, no analytics, no crash reporting.**
-- **Bind to whatever network you want.** Localhost only, your LAN, or your tailnet — picked at server startup.
+- **Nothing reaches your terminal without your token.** dispatch types into iTerm2, and whatever it types gets run, so see [Security](#security) before turning on remote access.
 
 ---
 
@@ -94,25 +95,24 @@ cd server
 ./dispatch_server.py
 ```
 
-On first run it'll prompt you for which IP to bind to:
-
-```
-Choose where to bind:
-  1) localhost only (this Mac)
-  2) LAN (anyone on Wi-Fi)
-  3) Tailscale only (this Mac's tailnet IP 100.x.y.z)
-```
-
-You can skip the prompt with a flag:
+By default it listens on `127.0.0.1` only (this Mac). Your phone is another device, so to use the iPhone app you opt into remote access, either per run with a flag:
 
 ```bash
-./dispatch_server.py --tailscale     # bind to your Tailscale IP only
-./dispatch_server.py --lan           # bind to 0.0.0.0 (LAN)
-./dispatch_server.py --localhost     # bind to 127.0.0.1
+./dispatch_server.py --tailscale     # bind to your Tailscale IP only (recommended)
+./dispatch_server.py --lan           # bind to 0.0.0.0 (LAN + tailnet)
 ./dispatch_server.py --bind 1.2.3.4  # bind to a specific IP
+./dispatch_server.py --localhost     # this Mac only (the default)
 ```
 
-The server runs on port `9876`.
+or once, with a one-word file that every later start (including `talk`'s) picks up:
+
+```bash
+mkdir -p ~/.config/dispatch && echo tailscale > ~/.config/dispatch/remote   # or: lan
+```
+
+The first remote start creates a random token in `~/.config/dispatch/token` (mode 600). Other devices must sign every request with it (the token itself never crosses the network); the iOS app gets it baked in at build time (step 3). Run interactively with no flag and no `remote` file, the server asks where to listen and defaults to localhost.
+
+The server runs on port `9879`.
 
 > **iTerm2 permissions:** The first time the server tries to read your iTerm2 window list, macOS will prompt for AppleScript / Automation permission. Grant it.
 
@@ -126,11 +126,27 @@ Before building:
 
 1. Select the `Dispatch` target → **Signing & Capabilities** → choose **your team** (sign in with your Apple ID if needed)
 2. Change the **Bundle Identifier** to something unique (e.g. `com.YOURNAME.dispatch`) — Apple won't let two developers share the same one
-3. Plug your iPhone in, select it as the target, and hit Run
+3. Give the app your token (only needed for remote access): create `Dispatch/Token.xcconfig` containing `DISPATCH_TOKEN = <the contents of ~/.config/dispatch/token>`, then in Xcode open the project → Info → Configurations and set it as the configuration file for the `Dispatch` target (or build from the command line with `xcodebuild ... -xcconfig Dispatch/Token.xcconfig`). `*.xcconfig` holding the token is git-ignored; never commit it. The token lands in the app's Info.plist as `DispatchToken`; the app signs every request with it.
+4. Plug your iPhone in, select it as the target, and hit Run
 
 ### 4. Connect the phone to the server
 
-On first launch, the iOS app asks for the server's IP address. Enter whatever the server told you it was binding to (e.g. `100.x.y.z:9876` if you used `--tailscale`).
+On first launch, the iOS app asks for the server's IP address. Enter whatever the server told you it was binding to (e.g. `100.x.y.z:9879` if you used `--tailscale`).
+
+---
+
+## Security
+
+dispatch's job is to type into your terminal, and a terminal runs what it's given. So the server only takes orders from you:
+
+- **Localhost by default.** Remote access (LAN / Tailscale) is opt-in: a flag or `~/.config/dispatch/remote`.
+- **Signed requests from other devices.** In remote mode every request from another machine must carry `X-Dispatch-Auth: v1 <unix-seconds> <nonce> <hex>`, where `hex = HMAC-SHA256(token, "METHOD\nPATH?QUERY\nSECONDS\nNONCE\n" + body)`. The token never goes over the wire, so sniffing plain HTTP on the LAN or posing as dispatch over Bonjour reveals nothing reusable. Requests more than 90 s off, with a nonce seen before, or with a changed path/body are refused (`401`). Only `GET /ping` is open. Prefer `--tailscale` anyway: it encrypts the traffic too.
+- **No web pages.** Requests carrying browser headers (`Origin`, `Sec-Fetch-*`) are refused, and no CORS headers are sent, so a website you visit can't reach dispatch through `localhost`.
+- **No DNS rebinding.** Requests from the Mac itself need no token, but their `Host` must be `localhost` or an IP address.
+- **JSON only.** `POST` bodies must be `application/json` (`/dictate` takes `audio/*`), and bodies are size-capped.
+- **Bonjour only in remote mode.** A localhost-only server doesn't advertise itself.
+
+Rotate the token by deleting `~/.config/dispatch/token`, restarting the server, and rebuilding the app.
 
 ---
 
@@ -201,6 +217,8 @@ dispatch/
 
 **"Phone can't reach dispatch server"** — First check whether your Mac's IP rotated. Run `ipconfig getifaddr en0` on the Mac and compare to what the iOS app is configured with. DHCP leases drop and the IP can change without warning. Using `--tailscale` avoids this entirely.
 
+**Server log says `refused ... bad signature` (or `missing or malformed X-Dispatch-Auth`)** — the phone's token doesn't match `~/.config/dispatch/token` on the Mac it's talking to. Rebuild the app with the current token (Setup step 3). If you run dispatch on more than one Mac, copy the same token file to each. `stale request` means the phone's and Mac's clocks disagree by more than 90 s.
+
 **"One window is missing from the cycle"** — The server filters out iTerm2 automation script windows. If a window's name happens to start with the substring "Script", it'll be excluded. Rename it.
 
 **Volume buttons don't do anything** — On iOS, the app needs to be running (foreground or background — not killed). Audio session must be active. Open the app, play a sound, then re-test.
@@ -215,7 +233,7 @@ MIT — [Ritual.Industries](https://ritual.industries)
 
 ## For AI coding agents
 
-This repo is a two-part system: an iOS+watchOS Swift app and a zero-dependency Python Mac server. They talk over plain HTTP on port `9876`. Read the files below before editing — don't infer behavior from names.
+This repo is a two-part system: an iOS+watchOS Swift app and a zero-dependency Python Mac server. They talk over plain HTTP on port `9879`. The server obeys only this Mac unless remote access is opted into, and then only requests signed with a shared token (see Security). Read the files below before editing — don't infer behavior from names.
 
 ### Repo layout (top level)
 - `Dispatch/` — the iOS app (SwiftUI, Swift 6.0). Volume-button interception, networking, audio capture, terminal-status UI.
@@ -226,24 +244,25 @@ This repo is a two-part system: an iOS+watchOS Swift app and a zero-dependency P
 - `Dispatch.xcodeproj/`, `README.md`, `LICENSE` (MIT), `.gitignore`.
 
 ### Key entry points (read first)
-- `server/dispatch_server.py` — the protocol's source of truth. `DispatchHandler` defines every route. Endpoints: `GET /status`, `/watch`, `/ping`, `/layout`; `POST /cycle`, `/dictate`, `/stream-text`, `/type`, `/escape`, `/flush`, `/recording-start`, `/recording-stop`, `/hud-position`, `/focus-push`, `/debug-log`, `/refresh`. `main()` + `choose_bind_ip()` handle startup and binding.
-- `Dispatch/DispatchApp.swift` (app entry), `Dispatch/VolumeButtonManager.swift` (the volume-HUD interception technique), and `Dispatch/NetworkManager.swift` (the client side of every route above — keep its endpoint strings in lockstep with the server).
+- `server/dispatch_server.py` — the protocol's source of truth. `DispatchHandler` defines every route. Endpoints: `GET /status`, `/watch`, `/ping`, `/layout`, `/notify/recent`, `/notify/ack`; `POST /cycle`, `/dictate`, `/stream-text`, `/type`, `/escape`, `/flush`, `/target`, `/notify`, `/recording-start`, `/recording-stop`, `/hud-position`, `/focus-push`, `/debug-log`, `/refresh`. `main()` + `choose_bind_ip()` handle startup and binding; `DispatchHandler._authorize()` + `verify_signature()` gate every request.
+- `Dispatch/DispatchApp.swift` (app entry), `Dispatch/VolumeButtonManager.swift` (the volume-HUD interception technique), and `Dispatch/NetworkManager.swift` (the client side of every route above — keep its endpoint strings in lockstep with the server; every request goes through `DispatchAuth.signed()`).
 
 ### Build / run / test
-- Server: `cd server && ./dispatch_server.py`. No pip install — Python 3.10+ stdlib only, drives iTerm2 via `osascript`. Flags skip the interactive bind prompt: `--localhost`, `--lan` (`0.0.0.0`), `--tailscale`, `--bind <ip>`. Always listens on `9876`. First run triggers a macOS Automation permission prompt for iTerm2.
+- Server: `cd server && ./dispatch_server.py`. No pip install — Python 3.10+ stdlib only, drives iTerm2 via `osascript`. Localhost by default; `--lan` (`0.0.0.0`), `--tailscale`, `--bind <ip>` or a one-word `~/.config/dispatch/remote` file opt into remote mode (signed requests only; token in `~/.config/dispatch/token`). Always listens on `9879`. First run triggers a macOS Automation permission prompt for iTerm2.
 - Swift helpers: rebuild from source when you touch the `.swift` files (the server prints the exact command), e.g. `swiftc -o server/transcribe server/transcribe.swift -framework Speech` and the analogous build for `dictation_hud`. Commit the rebuilt binary alongside the source.
-- iOS/watchOS: project is generated — run `xcodegen generate` after editing `project.yml`, then `open Dispatch.xcodeproj`. Set your own signing team in Xcode and build to a device. There is no automated test suite; verify on a physical iPhone (volume events don't fire reliably in Simulator).
+- iOS/watchOS: project is generated — run `xcodegen generate` after editing `project.yml`, then `open Dispatch.xcodeproj`. Set your own signing team in Xcode and build to a device; for remote mode pass the token with `-xcconfig` (Setup step 3). There is no automated test suite; verify on a physical iPhone (volume events don't fire reliably in Simulator).
 
 ### Invariants — do not break
 - **`DEVELOPMENT_TEAM` must stay `""`** in `project.yml` (both the `Dispatch` and `Dispatch Watch App` targets). It's intentionally blank so each contributor supplies their own team; never commit a real team ID.
 - **Keep the server stdlib-only at its core.** It must run with no install step. The one third-party import, `zeroconf`, is **optional** and guarded by `try/except ImportError` (Bonjour auto-discovery degrades gracefully to manual IP). Don't add *required* third-party imports or a mandatory `requirements.txt`; keep any new optional dep import-guarded the same way.
 - **Don't hardcode paths.** The server already resolves everything relative to itself: `SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))`, with `TRANSCRIBE_BIN`/`DICTATION_HUD_BIN`/`DEBUG_LOG_FILE` derived from it, and config under `os.path.expanduser(...)` (`~/.config/dispatch/`, `~/.claude/...`). Keep these parameterized — no absolute or user-specific paths.
-- **Bind IP stays user-chosen at runtime.** `choose_bind_ip()` must keep defaulting safely (localhost/Tailscale) and never bake in a specific LAN/tailnet IP. Don't widen the default bind.
+- **Security model stays intact.** The server types into a terminal, so: default bind stays `127.0.0.1` (remote is opt-in only); every request from another machine must pass `verify_signature()`; requests with `Origin`/`Sec-Fetch-*` stay refused; no CORS headers, ever; same-Mac requests keep the Host check; POST stays JSON-only. Never bake in a specific LAN/tailnet IP.
+- **The token never goes in git.** `DispatchToken` in both Info.plists stays `$(DISPATCH_TOKEN)`; the real value comes from a git-ignored `*.xcconfig` or `~/.config/dispatch/token`. Never send the raw token over the network — sign instead.
 - **Keep the HTTP protocol in sync across all three clients.** Route paths, JSON keys, and the cycle `seq` token (`last_cycle_seq`/`cycle_confirmed_seq` ordering guard that prevents stale `/cycle` responses from snapping the active window backward) are a shared contract between `dispatch_server.py`, `Dispatch/NetworkManager.swift`, and the watch app's `NetworkManager.swift`. Change all sides together.
 - **Respect `.gitignore` secrets/state.** `.env*`, `certs/`, `*.pem`/`*.key`/`*.p12`, `credentials.json`, logs (`*.log`, `dictation_debug.log`), `*.pid`, `*.jsonl`, `state/`, and internal notes (`CLAUDE.md`, `SESSION_LOG.md`, `.claude/`) must never be committed.
 - **iTerm2 window filtering:** the server excludes windows whose name starts with `Script`. Preserve that filter (it hides automation/HUD windows from the cycle list).
 
 ### Placeholdered / personal values to keep generic
 - Bundle IDs in `project.yml` use the generic `com.ritualindustries.dispatch` / `.watch` prefix — treat as a placeholder; contributors change it in Xcode. Don't substitute a real personal identifier.
-- All network addresses are runtime-supplied (server bind flags; the iOS app's `serverURL` defaults to `http://localhost:9876` and is set via Bonjour discovery or manual entry). No real LAN/Tailscale IPs are checked in — keep it that way.
+- All network addresses are runtime-supplied (server bind flags; the iOS app's `serverURL` defaults to `http://localhost:9879` in the Simulator and is set via Bonjour discovery or manual entry on device). No real LAN/Tailscale IPs are checked in — keep it that way.
 - `iterm-scripts/focus_tab_color.py` and the server's focus integration read from `~/.claude/...` toggle/state files; these are environment lookups, not committed config — leave them as `expanduser` lookups.

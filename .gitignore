@@ -43,3 +43,9 @@ CLAUDE.md
 docs/superpowers/
 project.json
 scene.js
+
+# Server runtime data
+server/notify-events.jsonl
+
+# Build-time token config (holds the dispatch token)
+*.xcconfig
