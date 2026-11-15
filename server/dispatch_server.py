@@ -2,6 +2,7 @@
 """Dispatch Server — control iTerm2 windows from iPhone."""
 
 import fcntl
+import hashlib
 import hmac
 import ipaddress
 import json
@@ -31,9 +32,14 @@ TARGET_APP = "iTerm2"
 #   * Default bind is 127.0.0.1 (this Mac only).
 #   * LAN / Tailscale is an explicit opt-in: --lan, --tailscale, --bind <ip>,
 #     or a one-word file ~/.config/dispatch/remote ("lan" / "tailscale" / an IP).
-#     In that mode every request from ANOTHER machine must send the shared
-#     secret in the X-Dispatch-Token header (token file: ~/.config/dispatch/token,
-#     created on first remote start, mode 600; or set DISPATCH_TOKEN).
+#     In that mode every request from ANOTHER machine must be signed with the
+#     shared secret (token file: ~/.config/dispatch/token, created on first
+#     remote start, mode 600; or set DISPATCH_TOKEN). The token itself never
+#     crosses the network, so sniffing the LAN or answering as a fake Bonjour
+#     "dispatch" doesn't reveal it:
+#         X-Dispatch-Auth: v1 <unix-seconds> <nonce> <hex>
+#         hex = HMAC-SHA256(token, "METHOD\nPATH?QUERY\nSECONDS\nNONCE\n" + body)
+#     Stale (> 90 s off), replayed (nonce seen before) or altered requests fail.
 #   * Requests from this Mac need no token, but must name the host as an IP
 #     literal or "localhost" (blocks DNS rebinding).
 #   * Browser requests (Origin / Sec-Fetch-* headers) are always refused, so a
@@ -42,10 +48,13 @@ TARGET_APP = "iTerm2"
 CONFIG_DIR = os.path.expanduser(os.environ.get("DISPATCH_CONFIG_DIR", "~/.config/dispatch"))
 TOKEN_FILE = os.path.join(CONFIG_DIR, "token")
 REMOTE_FILE = os.path.join(CONFIG_DIR, "remote")
-TOKEN_HEADER = "X-Dispatch-Token"
+AUTH_HEADER = "X-Dispatch-Auth"
+AUTH_WINDOW_S = 90
 MAX_JSON_BODY = 1_000_000
 MAX_AUDIO_BODY = 50_000_000
 _auth = {"token": None}  # set in main() when bound beyond loopback
+_seen_nonces: dict[str, float] = {}
+_nonce_lock = threading.Lock()
 
 # /notify endpoint state — append-only ring of recent events for CC sessions to read.
 NOTIFY_LOG_FILE = os.path.join(SCRIPT_DIR, "notify-events.jsonl")
@@ -1059,6 +1068,39 @@ def _host_is_literal_or_localhost(host_header):
     return name == "localhost" or _ip(name) is not None
 
 
+def request_signature(token, method, path, ts, nonce, body=b""):
+    """HMAC-SHA256 hex over the request. Clients compute the same thing."""
+    msg = f"{method}\n{path}\n{ts}\n{nonce}\n".encode("utf-8") + (body or b"")
+    return hmac.new(token.encode("utf-8"), msg, hashlib.sha256).hexdigest()
+
+
+def verify_signature(token, method, path, header, body):
+    """None if the request is correctly signed, fresh and new; else the reason."""
+    parts = (header or "").split()
+    if len(parts) != 4 or parts[0] != "v1":
+        return f"missing or malformed {AUTH_HEADER}"
+    _, ts, nonce, sig = parts
+    try:
+        ts_i = int(ts)
+    except ValueError:
+        return "bad timestamp"
+    now = time.time()
+    if abs(now - ts_i) > AUTH_WINDOW_S:
+        return "stale request (are both clocks right?)"
+    if not (16 <= len(nonce) <= 64) or not nonce.isalnum():
+        return "bad nonce"
+    expected = request_signature(token, method, path, ts, nonce, body)
+    if not hmac.compare_digest(sig.lower().encode("ascii", "replace"), expected.encode("ascii")):
+        return "bad signature"
+    with _nonce_lock:
+        for k in [k for k, exp in _seen_nonces.items() if exp < now]:
+            del _seen_nonces[k]
+        if nonce in _seen_nonces:
+            return "replayed request"
+        _seen_nonces[nonce] = now + 2 * AUTH_WINDOW_S
+    return None
+
+
 class DispatchHandler(BaseHTTPRequestHandler):
     def send_json(self, data, status=200):
         self.send_response(status)
@@ -1067,15 +1109,10 @@ class DispatchHandler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(data).encode())
 
     def read_body(self):
-        try:
-            length = int(self.headers.get('Content-Length', 0))
-        except ValueError:
-            raise ValueError("bad Content-Length")
-        if length == 0:
+        raw = getattr(self, "_raw_body", b"")  # read (and size-capped) in _authorize
+        if not raw:
             return {}
-        if length < 0 or length > MAX_JSON_BODY:
-            raise ValueError("body too large")
-        body = json.loads(self.rfile.read(length))
+        body = json.loads(raw)
         if not isinstance(body, dict):
             raise ValueError("body must be a JSON object")
         return body
@@ -1119,20 +1156,32 @@ class DispatchHandler(BaseHTTPRequestHandler):
                     return self._refuse(415, "/dictate needs an audio/* body")
             elif ctype != "application/json":
                 return self._refuse(415, "Content-Type must be application/json")
+        # Read the body up front (size-capped): remote signatures cover it.
+        self._raw_body = b""
+        if self.command == "POST":
+            try:
+                length = int(h.get("Content-Length", 0))
+            except ValueError:
+                length = -1
+            cap = MAX_AUDIO_BODY if self.path == "/dictate" else MAX_JSON_BODY
+            if length < 0 or length > cap:
+                return self._refuse(413, "body too large")
+            self._raw_body = self.rfile.read(length) if length else b""
         # 3. This Mac: no token, but the Host must not be a DNS name.
         if self._from_this_mac():
             if not _host_is_literal_or_localhost(h.get("Host")):
                 return self._refuse(403, "Host must be localhost or an IP address")
             return True
-        # 4. Another machine: shared secret required (only /ping is open).
+        # 4. Another machine: must be signed with the shared secret (only
+        #    /ping is open).
         if self.command == "GET" and self.path == "/ping":
             return True
-        expected = _auth["token"]
-        if not expected:
+        if not _auth["token"]:
             return self._refuse(403, "remote access is off")
-        sent = (h.get(TOKEN_HEADER) or "").strip().encode("utf-8", "replace")
-        if not hmac.compare_digest(sent, expected.encode("utf-8")):
-            return self._refuse(401, "missing or wrong " + TOKEN_HEADER)
+        problem = verify_signature(_auth["token"], self.command, self.path,
+                                   h.get(AUTH_HEADER), self._raw_body)
+        if problem:
+            return self._refuse(401, problem)
         return True
 
     def do_OPTIONS(self):
@@ -1244,14 +1293,7 @@ class DispatchHandler(BaseHTTPRequestHandler):
             return
 
         if self.path == "/dictate":
-            try:
-                length = int(self.headers.get('Content-Length', 0))
-            except ValueError:
-                length = -1
-            if length < 0 or length > MAX_AUDIO_BODY:
-                self.send_json({"error": "audio too large"}, 413)
-                return
-            audio_data = self.rfile.read(length) if length > 0 else b''
+            audio_data = self._raw_body  # read + size-capped in _authorize
             if not audio_data:
                 self.send_json({"error": "no audio"}, 400)
                 return
@@ -1701,7 +1743,7 @@ def main():
     print(f"\n  Dispatch Server running on port {PORT}")
     print(f"  Bound to: {bind_ip}:{PORT}")
     if remote:
-        print(f"  Remote access: ON — other devices must send {TOKEN_HEADER} (token file: {TOKEN_FILE})")
+        print(f"  Remote access: ON — other devices must sign requests with the token ({AUTH_HEADER}; token file: {TOKEN_FILE})")
         print(f"  URL: http://{hostname}.local:{PORT}")
     else:
         print(f"  Remote access: off (this Mac only). Opt in with --lan / --tailscale or {REMOTE_FILE}")

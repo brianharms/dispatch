@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Network
 
@@ -63,9 +64,6 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
         config.timeoutIntervalForRequest = 5
         config.timeoutIntervalForResource = 5
         config.waitsForConnectivity = false
-        if !WatchDispatchAuth.token.isEmpty {
-            config.httpAdditionalHeaders = [WatchDispatchAuth.header: WatchDispatchAuth.token]
-        }
         return URLSession(configuration: config)
     }()
 
@@ -75,9 +73,6 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
         config.timeoutIntervalForRequest = 35
         config.timeoutIntervalForResource = 35
         config.waitsForConnectivity = false
-        if !WatchDispatchAuth.token.isEmpty {
-            config.httpAdditionalHeaders = [WatchDispatchAuth.header: WatchDispatchAuth.token]
-        }
         return URLSession(configuration: config)
     }()
 
@@ -179,7 +174,7 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
         guard !serverURL.isEmpty,
               let url = URL(string: "\(serverURL)/status") else { return }
 
-        session.dataTask(with: url) { [weak self] data, response, error in
+        session.dataTask(with: WatchDispatchAuth.signed(URLRequest(url: url, timeoutInterval: 5))) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard error == nil,
@@ -196,7 +191,7 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
         guard !serverURL.isEmpty,
               let url = URL(string: "\(serverURL)/status") else { return }
 
-        session.dataTask(with: url) { [weak self] data, response, error in
+        session.dataTask(with: WatchDispatchAuth.signed(URLRequest(url: url, timeoutInterval: 5))) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self else { return }
 
@@ -333,7 +328,7 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
         var request = URLRequest(url: url)
         request.timeoutInterval = 35
 
-        watchSession.dataTask(with: request) { [weak self] data, response, error in
+        watchSession.dataTask(with: WatchDispatchAuth.signed(request)) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self, self.watchLoopActive else { return }
 
@@ -406,7 +401,7 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
         request.httpBody = audioData
         request.setValue("audio/wav", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 15
-        session.dataTask(with: request) { _, _, _ in }.resume()
+        session.dataTask(with: WatchDispatchAuth.signed(request)) { _, _, _ in }.resume()
     }
 
     func type(text: String) {
@@ -416,7 +411,7 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
         request.httpMethod = "POST"
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["text": text, "enter": true])
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        session.dataTask(with: request) { _, _, _ in }.resume()
+        session.dataTask(with: WatchDispatchAuth.signed(request)) { _, _, _ in }.resume()
     }
 
     // MARK: - HTTP Helpers
@@ -431,7 +426,7 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        session.dataTask(with: request) { [weak self] data, response, error in
+        session.dataTask(with: WatchDispatchAuth.signed(request)) { [weak self] data, response, error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 guard error == nil,
@@ -449,14 +444,19 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
 
 // MARK: - Auth
 
-/// Shared secret for dispatch's remote mode. When dispatch listens beyond
+/// Request signing for dispatch's remote mode. When dispatch listens beyond
 /// localhost (--lan / --tailscale / ~/.config/dispatch/remote) it refuses any
-/// request from another device that lacks the X-Dispatch-Token header.
-/// Source order: a token saved in UserDefaults ("dispatchToken"), then the
+/// request from another device that isn't signed with the shared token. The
+/// token never goes over the network: each request carries
+///   X-Dispatch-Auth: v1 <unix-seconds> <nonce> <hex>
+///   hex = HMAC-SHA256(token, "METHOD\nPATH?QUERY\nSECONDS\nNONCE\n" + body)
+/// so a sniffer or a fake Bonjour "dispatch" learns nothing reusable, and the
+/// server rejects stale, replayed or altered requests.
+/// Token source: a value saved in UserDefaults ("dispatchToken"), else the
 /// DispatchToken Info.plist value baked in at build time from the
-/// DISPATCH_TOKEN build setting (see README). Empty = no header sent.
+/// DISPATCH_TOKEN build setting (see README). Empty = requests go unsigned.
 enum WatchDispatchAuth {
-    static let header = "X-Dispatch-Token"
+    static let header = "X-Dispatch-Auth"
 
     static var token: String {
         let saved = (UserDefaults.standard.string(forKey: "dispatchToken") ?? "")
@@ -465,5 +465,24 @@ enum WatchDispatchAuth {
         let baked = ((Bundle.main.object(forInfoDictionaryKey: "DispatchToken") as? String) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return baked.hasPrefix("$(") ? "" : baked
+    }
+
+    /// Returns a copy of `request` carrying a fresh X-Dispatch-Auth signature.
+    static func signed(_ request: URLRequest) -> URLRequest {
+        let key = token
+        guard !key.isEmpty, let url = request.url,
+              let comps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return request }
+        var target = comps.percentEncodedPath.isEmpty ? "/" : comps.percentEncodedPath
+        if let q = comps.percentEncodedQuery { target += "?" + q }
+        let method = request.httpMethod ?? "GET"
+        let ts = String(Int(Date().timeIntervalSince1970))
+        let nonce = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        var message = Data("\(method)\n\(target)\n\(ts)\n\(nonce)\n".utf8)
+        message.append(request.httpBody ?? Data())
+        let mac = HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: Data(key.utf8)))
+        let hex = mac.map { String(format: "%02x", $0) }.joined()
+        var r = request
+        r.setValue("v1 \(ts) \(nonce) \(hex)", forHTTPHeaderField: header)
+        return r
     }
 }
