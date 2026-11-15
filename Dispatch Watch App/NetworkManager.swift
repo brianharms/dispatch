@@ -53,9 +53,9 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
         let host = macHostname
         guard !host.isEmpty else { return "" }
         if host.contains(".") && host.first?.isNumber == true {
-            return "http://\(host):9876"
+            return "http://\(host):9879"
         }
-        return "http://\(host).local:9876"
+        return "http://\(host).local:9879"
     }
 
     private lazy var session: URLSession = {
@@ -63,6 +63,9 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
         config.timeoutIntervalForRequest = 5
         config.timeoutIntervalForResource = 5
         config.waitsForConnectivity = false
+        if !WatchDispatchAuth.token.isEmpty {
+            config.httpAdditionalHeaders = [WatchDispatchAuth.header: WatchDispatchAuth.token]
+        }
         return URLSession(configuration: config)
     }()
 
@@ -72,6 +75,9 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
         config.timeoutIntervalForRequest = 35
         config.timeoutIntervalForResource = 35
         config.waitsForConnectivity = false
+        if !WatchDispatchAuth.token.isEmpty {
+            config.httpAdditionalHeaders = [WatchDispatchAuth.header: WatchDispatchAuth.token]
+        }
         return URLSession(configuration: config)
     }()
 
@@ -438,5 +444,26 @@ class NetworkManager: ObservableObject, @unchecked Sendable {
                 self.parseStatusResponse(data, updateActiveIndex: true, source: "CYCLE-RESP")
             }
         }.resume()
+    }
+}
+
+// MARK: - Auth
+
+/// Shared secret for dispatch's remote mode. When dispatch listens beyond
+/// localhost (--lan / --tailscale / ~/.config/dispatch/remote) it refuses any
+/// request from another device that lacks the X-Dispatch-Token header.
+/// Source order: a token saved in UserDefaults ("dispatchToken"), then the
+/// DispatchToken Info.plist value baked in at build time from the
+/// DISPATCH_TOKEN build setting (see README). Empty = no header sent.
+enum WatchDispatchAuth {
+    static let header = "X-Dispatch-Token"
+
+    static var token: String {
+        let saved = (UserDefaults.standard.string(forKey: "dispatchToken") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !saved.isEmpty { return saved }
+        let baked = ((Bundle.main.object(forInfoDictionaryKey: "DispatchToken") as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return baked.hasPrefix("$(") ? "" : baked
     }
 }

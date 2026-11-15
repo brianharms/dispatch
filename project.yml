@@ -17,6 +17,7 @@ targets:
       path: Dispatch/Info.plist
       properties:
         CFBundleDisplayName: Dispatch
+        DispatchToken: "$(DISPATCH_TOKEN)"
         UILaunchStoryboardName: ""
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationLandscapeLeft
@@ -54,6 +55,7 @@ targets:
       path: Dispatch Watch App/Info.plist
       properties:
         CFBundleDisplayName: Dispatch
+        DispatchToken: "$(DISPATCH_TOKEN)"
         NSMicrophoneUsageDescription: "Dispatch needs microphone access for voice dictation."
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true

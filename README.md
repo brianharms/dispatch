@@ -16,7 +16,7 @@ It pairs an iOS app with a small Python server running on your Mac. The server s
 - **Voice → keystrokes.** Speak; on-device speech recognition transcribes and the server types your text into the focused terminal.
 - **Multi-window orchestration.** Sit on the couch and bounce between four agents working on four different things.
 - **Visual highlight.** The active iTerm2 window gets a colored tab so you can glance at the screen and know where input is going.
-- **Local-only.** Server can bind to `localhost`, your LAN, or your [Tailscale](https://tailscale.com/) tailnet — your call.
+- **Local by default.** The server listens on this Mac only. Reaching it from your phone over your LAN or [Tailscale](https://tailscale.com/) tailnet is an explicit opt-in, and then every request from another device must carry a shared token.
 
 ### Input matrix
 
@@ -44,7 +44,7 @@ It pairs an iOS app with a small Python server running on your Mac. The server s
 
 - **All processing is local.** Speech transcription runs on-device on the iPhone (via Apple's `Speech` framework). The server runs on your Mac. No third-party cloud services are involved.
 - **No telemetry, no analytics, no crash reporting.**
-- **Bind to whatever network you want.** Localhost only, your LAN, or your tailnet — picked at server startup.
+- **Nothing reaches your terminal without your token.** dispatch types into iTerm2, and whatever it types gets run, so see [Security](#security) before turning on remote access.
 
 ---
 
@@ -81,25 +81,24 @@ cd server
 ./dispatch_server.py
 ```
 
-On first run it'll prompt you for which IP to bind to:
-
-```
-Choose where to bind:
-  1) localhost only (this Mac)
-  2) LAN (anyone on Wi-Fi)
-  3) Tailscale only (this Mac's tailnet IP 100.x.y.z)
-```
-
-You can skip the prompt with a flag:
+By default it listens on `127.0.0.1` only (this Mac). Your phone is another device, so to use the iPhone app you opt into remote access, either per run with a flag:
 
 ```bash
-./dispatch_server.py --tailscale     # bind to your Tailscale IP only
-./dispatch_server.py --lan           # bind to 0.0.0.0 (LAN)
-./dispatch_server.py --localhost     # bind to 127.0.0.1
+./dispatch_server.py --tailscale     # bind to your Tailscale IP only (recommended)
+./dispatch_server.py --lan           # bind to 0.0.0.0 (LAN + tailnet)
 ./dispatch_server.py --bind 1.2.3.4  # bind to a specific IP
+./dispatch_server.py --localhost     # this Mac only (the default)
 ```
 
-The server runs on port `9876`.
+or once, with a one-word file that every later start (including `talk`'s) picks up:
+
+```bash
+mkdir -p ~/.config/dispatch && echo tailscale > ~/.config/dispatch/remote   # or: lan
+```
+
+The first remote start creates a random token in `~/.config/dispatch/token` (mode 600). Other devices must send it in an `X-Dispatch-Token` header; the iOS app gets it baked in at build time (step 3). Run interactively with no flag and no `remote` file, the server asks where to listen and defaults to localhost.
+
+The server runs on port `9879`.
 
 > **iTerm2 permissions:** The first time the server tries to read your iTerm2 window list, macOS will prompt for AppleScript / Automation permission. Grant it.
 
@@ -113,11 +112,27 @@ Before building:
 
 1. Select the `Dispatch` target → **Signing & Capabilities** → choose **your team** (sign in with your Apple ID if needed)
 2. Change the **Bundle Identifier** to something unique (e.g. `com.YOURNAME.dispatch`) — Apple won't let two developers share the same one
-3. Plug your iPhone in, select it as the target, and hit Run
+3. Give the app your token (only needed for remote access): create `Dispatch/Token.xcconfig` containing `DISPATCH_TOKEN = <the contents of ~/.config/dispatch/token>`, then in Xcode open the project → Info → Configurations and set it as the configuration file for the `Dispatch` target (or build from the command line with `xcodebuild ... -xcconfig Dispatch/Token.xcconfig`). `*.xcconfig` holding the token is git-ignored; never commit it. The token lands in the app's Info.plist as `DispatchToken` and is sent on every request.
+4. Plug your iPhone in, select it as the target, and hit Run
 
 ### 4. Connect the phone to the server
 
-On first launch, the iOS app asks for the server's IP address. Enter whatever the server told you it was binding to (e.g. `100.77.8.62:9876` if you used `--tailscale`).
+On first launch, the iOS app asks for the server's IP address. Enter whatever the server told you it was binding to (e.g. `100.x.y.z:9879` if you used `--tailscale`).
+
+---
+
+## Security
+
+dispatch's job is to type into your terminal, and a terminal runs what it's given. So the server only takes orders from you:
+
+- **Localhost by default.** Remote access (LAN / Tailscale) is opt-in: a flag or `~/.config/dispatch/remote`.
+- **Token for other devices.** In remote mode every request from another machine needs `X-Dispatch-Token` (compared in constant time). Only `GET /ping` is open. Missing or wrong token → `401`.
+- **No web pages.** Requests carrying browser headers (`Origin`, `Sec-Fetch-*`) are refused, and no CORS headers are sent, so a website you visit can't reach dispatch through `localhost`.
+- **No DNS rebinding.** Requests from the Mac itself need no token, but their `Host` must be `localhost` or an IP address.
+- **JSON only.** `POST` bodies must be `application/json` (`/dictate` takes `audio/*`), and bodies are size-capped.
+- **Bonjour only in remote mode.** A localhost-only server doesn't advertise itself.
+
+Rotate the token by deleting `~/.config/dispatch/token`, restarting the server, and rebuilding the app.
 
 ---
 
@@ -187,6 +202,8 @@ dispatch/
 ## Troubleshooting
 
 **"Phone can't reach dispatch server"** — First check whether your Mac's IP rotated. Run `ipconfig getifaddr en0` on the Mac and compare to what the iOS app is configured with. DHCP leases drop and the IP can change without warning. Using `--tailscale` avoids this entirely.
+
+**Server log says `refused ... missing or wrong X-Dispatch-Token`** — the phone's token doesn't match `~/.config/dispatch/token` on the Mac it's talking to. Rebuild the app with the current token (Setup step 3). If you run dispatch on more than one Mac, copy the same token file to each.
 
 **"One window is missing from the cycle"** — The server filters out iTerm2 automation script windows. If a window's name happens to start with the substring "Script", it'll be excluded. Rename it.
 

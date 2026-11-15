@@ -253,7 +253,7 @@ final class NetworkManager {
               let url = URL(string: "\(serverURL)/status") else { return }
         Task {
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
+                let (data, response) = try await DispatchAuth.session.data(from: url)
                 guard let httpResponse = response as? HTTPURLResponse,
                       httpResponse.statusCode == 200 else { return }
                 parseStatusResponse(data, updateActiveIndex: true, source: "INIT")
@@ -271,7 +271,7 @@ final class NetworkManager {
 
         Task {
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
+                let (data, response) = try await DispatchAuth.session.data(from: url)
                 guard let httpResponse = response as? HTTPURLResponse,
                       httpResponse.statusCode == 200 else {
                     consecutivePollFailures += 1
@@ -439,7 +439,7 @@ final class NetworkManager {
                     var request = URLRequest(url: url)
                     request.timeoutInterval = 35
 
-                    let (data, response) = try await URLSession.shared.data(for: request)
+                    let (data, response) = try await DispatchAuth.session.data(for: request)
                     guard let httpResponse = response as? HTTPURLResponse,
                           httpResponse.statusCode == 200 else { continue }
 
@@ -552,7 +552,7 @@ final class NetworkManager {
             } catch { return }
 
             do {
-                let (_, response) = try await URLSession.shared.data(for: request)
+                let (_, response) = try await DispatchAuth.session.data(for: request)
                 if let httpResponse = response as? HTTPURLResponse,
                    httpResponse.statusCode != 200 {
                     print("[NetworkManager] /stream-text returned \(httpResponse.statusCode)")
@@ -595,7 +595,7 @@ final class NetworkManager {
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
             } catch { return }
             do {
-                let (_, _) = try await URLSession.shared.data(for: request)
+                let (_, _) = try await DispatchAuth.session.data(for: request)
             } catch {
                 print("[NetworkManager] /type (enter after dictation) failed: \(error)")
             }
@@ -610,7 +610,7 @@ final class NetworkManager {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try? JSONSerialization.data(withJSONObject: [:] as [String: Any])
             do {
-                let (_, _) = try await URLSession.shared.data(for: request)
+                let (_, _) = try await DispatchAuth.session.data(for: request)
             } catch {
                 print("[NetworkManager] /recording-stop (after dictation) failed: \(error)")
             }
@@ -651,7 +651,7 @@ final class NetworkManager {
 
         Task {
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await DispatchAuth.session.data(for: request)
                 if let httpResponse = response as? HTTPURLResponse,
                    httpResponse.statusCode == 200
                 {
@@ -689,7 +689,7 @@ final class NetworkManager {
 
         Task {
             do {
-                let (_, response) = try await URLSession.shared.data(for: request)
+                let (_, response) = try await DispatchAuth.session.data(for: request)
                 if let httpResponse = response as? HTTPURLResponse,
                    httpResponse.statusCode != 200
                 {
@@ -702,4 +702,34 @@ final class NetworkManager {
             }
         }
     }
+}
+
+
+// MARK: - Auth
+
+/// Shared secret for dispatch's remote mode. When dispatch listens beyond
+/// localhost (--lan / --tailscale / ~/.config/dispatch/remote) it refuses any
+/// request from another device that lacks the X-Dispatch-Token header.
+/// Source order: a token saved in UserDefaults ("dispatchToken"), then the
+/// DispatchToken Info.plist value baked in at build time from the
+/// DISPATCH_TOKEN build setting (see README). Empty = no header sent.
+enum DispatchAuth {
+    static let header = "X-Dispatch-Token"
+
+    static var token: String {
+        let saved = (UserDefaults.standard.string(forKey: "dispatchToken") ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !saved.isEmpty { return saved }
+        let baked = ((Bundle.main.object(forInfoDictionaryKey: "DispatchToken") as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return baked.hasPrefix("$(") ? "" : baked
+    }
+
+    /// Used for every dispatch request so the token rides along automatically.
+    static let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        let t = token
+        if !t.isEmpty { config.httpAdditionalHeaders = [header: t] }
+        return URLSession(configuration: config)
+    }()
 }

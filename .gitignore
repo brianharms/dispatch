@@ -37,3 +37,9 @@ server/*.log
 *.pfx
 credentials.json
 .auth-token
+
+# Server runtime data
+server/notify-events.jsonl
+
+# Build-time token config (holds the dispatch token)
+*.xcconfig
