@@ -43,3 +43,7 @@ server/notify-events.jsonl
 
 # Build-time token config (holds the dispatch token)
 *.xcconfig
+
+# >>> fleet-assets (managed: symlinks into ~/Assets; do not edit)
+/.claude
+# <<< fleet-assets
